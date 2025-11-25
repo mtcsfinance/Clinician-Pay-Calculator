@@ -1,0 +1,5 @@
+{
+  "name": "Clinician Compensation Calculator",
+  "description": "A comprehensive calculator for clinician compensation modeling, supporting W-2 and 1099 scenarios with detailed input controls and visualization.",
+  "requestFramePermissions": []
+}
