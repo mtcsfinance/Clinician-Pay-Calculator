@@ -206,7 +206,7 @@ function OnboardingTour({
     {
       title: "1. Enter Clinician Data",
       body: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
-      targetId: "tour-inputs",
+      targetId: "tab-trigger-inputs", // Updated to highlight tab
       tab: "inputs"
     },
     {
@@ -218,7 +218,7 @@ function OnboardingTour({
     {
       title: "3. Compare W-2 vs 1099",
       body: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment.",
-      targetId: "tour-summary",
+      targetId: "tab-trigger-summary", // Updated to highlight tab
       tab: "summary"
     }
   ];
@@ -227,6 +227,12 @@ function OnboardingTour({
 
   // Smart Scroll Helper
   const scrollToTarget = (id: string) => {
+    // If we are targeting the tabs (which are sticky headers), just scroll to top
+    if (id.startsWith("tab-trigger")) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
     const el = document.getElementById(id);
     if (!el) return;
     
@@ -340,10 +346,16 @@ function OnboardingTour({
             ? "items-start justify-center pt-32 sm:pt-48" // Position Top if element is at bottom
             : "items-end justify-center sm:pb-8"        // Position Bottom if element is at top
       )}>
-        <div className={cn(
-          "pointer-events-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 max-w-md w-full border border-gray-100",
-          step !== 0 && !isHighlightBottom ? "mb-4 sm:mb-0" : ""
-        )}>
+        <div 
+          className={cn(
+            "pointer-events-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 max-w-md w-full border border-gray-100 relative",
+            step !== 0 && !isHighlightBottom ? "mb-4 sm:mb-0" : ""
+          )}
+          style={step !== 0 ? {
+            // If targeted element is known, try to stick close to it (Desktop optimization)
+            // But simplify for mobile/header targets to just be at bottom of screen
+          } : {}}
+        >
           
           {/* Header & Close */}
           <div className="px-6 pt-5 flex items-center justify-between">
@@ -616,8 +628,8 @@ export default function ClinicianCompCalculator() {
             </div>
             
             <TabsList className="grid grid-cols-4 w-full">
-              <TabsTrigger value="inputs">Inputs</TabsTrigger>
-              <TabsTrigger value="summary">Summary</TabsTrigger>
+              <TabsTrigger id="tab-trigger-inputs" value="inputs">Inputs</TabsTrigger>
+              <TabsTrigger id="tab-trigger-summary" value="summary">Summary</TabsTrigger>
               <TabsTrigger value="w2">W‑2</TabsTrigger>
               <TabsTrigger value="ic">1099</TabsTrigger>
             </TabsList>

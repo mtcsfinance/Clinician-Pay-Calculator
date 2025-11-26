@@ -32,11 +32,12 @@ export function TabsList({ className, children }: { className?: string; children
   return <div className={cn("rounded-xl border border-gray-200 p-1 grid bg-white", className)}>{children}</div>;
 }
 
-export function TabsTrigger({ value, children }: { value: string; children?: React.ReactNode }) {
+export function TabsTrigger({ value, children, id }: { value: string; children?: React.ReactNode; id?: string }) {
   const ctx = useContext(TabsCtx);
   const isActive = ctx?.active === value;
   return (
     <button
+      id={id}
       onClick={() => ctx?.setActive(value)}
       className={cn(
         "h-10 rounded-lg text-sm font-semibold transition",
