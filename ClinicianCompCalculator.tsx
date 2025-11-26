@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { cn, clamp, fmtUSD, fmtUSD2, fmtPct, toNum } from "./utils";
 import {
   Card,
@@ -184,230 +184,180 @@ function DistributionBar({ segments, total, height = "h-4" }: { segments: { labe
   )
 }
 
-// --- Onboarding Tour ---
+// --- Onboarding Components ---
 
-function OnboardingTour({ 
-  onComplete, 
-  setTab 
-}: { 
-  onComplete: () => void, 
-  setTab: (t: string) => void 
-}) {
-  const [step, setStep] = useState(0);
-  const [spotlightRect, setSpotlightRect] = useState<DOMRect | null>(null);
-
-  const steps = [
-    {
-      title: "Welcome to the Calculator",
-      body: "This tool helps practice owners model transparent, sustainable compensation plans for clinicians. Let's get you oriented in 3 quick steps.",
-      targetId: null, // Center modal
-      tab: "inputs"
-    },
-    {
-      title: "1. Enter Clinician Data",
-      body: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
-      targetId: "tab-trigger-inputs", 
-      tab: "inputs"
-    },
-    {
-      title: "2. Set the Target Ratio",
-      body: "The **Target Slider** is your main lever. It sets the percentage of revenue allocated to the clinician's total cost of employment (Salary + Taxes + Benefits).",
-      targetId: "tour-slider",
-      tab: "inputs"
-    },
-    {
-      title: "3. Compare W-2 vs 1099",
-      body: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment.",
-      targetId: "tab-trigger-summary", 
-      tab: "summary"
-    }
-  ];
-
-  const current = steps[step];
-
-  // Smart Scroll Helper
-  const scrollToTarget = (id: string) => {
-    // If we are targeting the tabs (which are sticky headers), just scroll to top
-    if (id.startsWith("tab-trigger")) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-
-    const el = document.getElementById(id);
-    if (!el) return;
-    
-    // We need to account for the sticky header height (approx 180px on desktop, 220px on mobile)
-    // We increase this offset slightly to ensure room for "Bottom Sheet" cards or "Top Sheet" cards
-    const headerOffset = 300; 
-    const elementPosition = el.getBoundingClientRect().top;
-    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-  
-    window.scrollTo({
-      top: offsetPosition,
-      behavior: "smooth"
-    });
-  };
-
-  // Effect to handle navigation and measurement
-  useEffect(() => {
-    // 1. Switch tab if needed
-    if (current.tab) {
-      setTab(current.tab);
-    }
-
-    // 2. Wait for render, then measure target
-    const timer = setTimeout(() => {
-      if (current.targetId) {
-        scrollToTarget(current.targetId);
-        
-        // Wait a bit more for scroll to finish before setting highlight rect
-        setTimeout(() => {
-          const el = document.getElementById(current.targetId!);
-          if (el) {
-            setSpotlightRect(el.getBoundingClientRect());
-          }
-        }, 300);
-      } else {
-        setSpotlightRect(null);
-      }
-    }, 150);
-
-    return () => clearTimeout(timer);
-  }, [step, current.tab, current.targetId, setTab]);
-
-  const handleNext = () => {
-    // Clear rect to prevent jumping transition
-    setSpotlightRect(null);
-    if (step < steps.length - 1) {
-      setStep(s => s + 1);
-    } else {
-      onComplete();
-    }
-  };
-
-  const handleBack = () => {
-    setSpotlightRect(null);
-    setStep(s => s - 1);
-  };
-
-  // Resize listener to update spotlight
-  useEffect(() => {
-    const handleResize = () => {
-      if (current.targetId) {
-        const el = document.getElementById(current.targetId);
-        if (el) setSpotlightRect(el.getBoundingClientRect());
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("scroll", handleResize);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("scroll", handleResize);
-    };
-  }, [current.targetId]);
-
-  // Determine card style based on step and spotlight
-  let cardStyle: React.CSSProperties = {
-    left: '50%',
-    zIndex: 120
-  };
-
-  if (step === 0) {
-    // Step 0: Fixed position near top for visibility in tall iframes
-    cardStyle.top = '180px';
-    cardStyle.transform = 'translateX(-50%)';
-  } else if (spotlightRect) {
-    // Specific logic for Step 2 (Slider): Place Card ABOVE the target
-    if (step === 2) {
-      cardStyle.top = `${spotlightRect.top - 24}px`;
-      cardStyle.transform = 'translate(-50%, -100%)';
-    } else {
-      // Steps 1 & 3: Place Card BELOW the target
-      cardStyle.top = `${spotlightRect.bottom + 24}px`;
-      cardStyle.transform = 'translateX(-50%)';
-    }
-  } else {
-    // Fallback if measurement fails
-    cardStyle.top = '180px';
-    cardStyle.transform = 'translateX(-50%)';
-  }
-
+function WelcomeModal({ onStart, onClose }: { onStart: () => void; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[100] font-sans">
-      
-      {/* 
-         Backdrop Logic:
-         1. If NO highlight (Step 0), use a full screen dim layer.
-         2. If Highlight exists, the Highlight Ring's massive shadow provides the dimming.
-      */}
-      {!spotlightRect && (
-        <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-[2px] transition-all duration-500" />
-      )}
-
-      {/* 
-        Highlight Ring with "Hole Punch" Shadow:
-      */}
-      {spotlightRect && (
-        <div 
-          className="absolute transition-all duration-300 ease-out rounded-lg pointer-events-none border-[3px] border-blue-500 z-[110]"
-          style={{
-            // Use viewport coordinates (rect.top/left)
-            top: spotlightRect.top - 4, 
-            left: spotlightRect.left - 4,
-            width: spotlightRect.width + 8,
-            height: spotlightRect.height + 8,
-            boxShadow: '0 0 0 9999px rgba(17, 24, 39, 0.75)'
-          }}
-        />
-      )}
-
-      {/* 
-        Card Container:
-        Uses calculated fixed position (top/left) to stay with content
-      */}
-      <div 
-        className="absolute w-full max-w-md px-4 z-[120]"
-        style={cardStyle}
-      >
-        <div 
-          key={step}
-          className="bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 border border-gray-100"
-        >
-          
-          {/* Header & Close */}
-          <div className="px-6 pt-5 flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
-              {step === 0 ? "Start" : `Step ${step} of 3`}
-            </span>
-            <button onClick={onComplete} className="text-gray-400 hover:text-gray-600">
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] sm:pt-[20vh] px-4 pointer-events-auto">
+      <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-300">
+        <div className="flex justify-between items-start">
+           <span className="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+              Start
+           </span>
+           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
               <span className="sr-only">Close</span>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          </div>
-          
-          <div className="p-6 space-y-4">
-            <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">{current.title}</h3>
-              <p className="text-gray-600 leading-relaxed text-sm">
-                 {current.body.split("**").map((part, i) => 
-                   i % 2 === 1 ? <strong key={i} className="text-blue-700 font-semibold">{part}</strong> : part
-                 )}
-              </p>
-            </div>
-          </div>
+           </button>
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Welcome to the Calculator</h3>
+          <p className="text-gray-600 leading-relaxed text-sm">
+            This tool helps practice owners model transparent, sustainable compensation plans for clinicians. Let's get you oriented in 3 quick steps.
+          </p>
+        </div>
+        <Button onClick={onStart} className="w-full shadow-lg shadow-blue-200">
+          Start Walkthrough
+        </Button>
+      </div>
+    </div>
+  );
+}
 
-          <div className="px-6 pb-6 pt-2 flex items-center gap-3">
-             {step > 0 && (
-               <Button variant="ghost" onClick={handleBack} className="flex-1">
-                 Back
-               </Button>
+function OnboardingTour({ 
+  step, 
+  onNext, 
+  onBack, 
+  onClose,
+  isLast 
+}: { 
+  step: number; 
+  onNext: () => void; 
+  onBack: () => void; 
+  onClose: () => void; 
+  isLast?: boolean;
+}) {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    // Fade out/reset before moving to next step
+    setVisible(false);
+
+    const timer = setTimeout(() => {
+      let targetId = "";
+      if (step === 1) targetId = "tab-trigger-inputs";
+      if (step === 2) targetId = "target-slider-container";
+      if (step === 3) targetId = "tab-trigger-summary";
+
+      const el = document.getElementById(targetId);
+      if (!el) return;
+
+      // Scroll logic
+      const elRect = el.getBoundingClientRect();
+      const absoluteTop = elRect.top + window.scrollY;
+      
+      let targetScrollY = 0;
+      // If step 2 (slider), try to center it so there's room above and below
+      if (step === 2) {
+        targetScrollY = Math.max(0, absoluteTop - (window.innerHeight / 2));
+      } else {
+        // For header tabs, scroll to top
+        targetScrollY = 0;
+      }
+      
+      window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
+
+      // Wait for smooth scroll to finish mostly
+      setTimeout(() => {
+        const newRect = el.getBoundingClientRect();
+        setRect(newRect);
+        setVisible(true); // Trigger fade in
+      }, 500);
+
+    }, 300); // Wait for initial fade out
+
+    return () => clearTimeout(timer);
+  }, [step]);
+
+  const contentMap: Record<number, { title: string; text: string }> = {
+    1: { 
+      title: "Enter Clinician Data", 
+      text: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician." 
+    },
+    2: { 
+      title: "Set the Target Ratio", 
+      text: "The **Target Slider** is your main lever. It sets the percentage of revenue allocated to the clinician's total cost of employment (Salary + Taxes + Benefits)." 
+    },
+    3: { 
+      title: "Compare W-2 vs 1099", 
+      text: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment." 
+    }
+  };
+  
+  const content = contentMap[step];
+  
+  if (!rect || !content) return null;
+
+  // Highlight Box Style (Fixed)
+  const highlightStyle: React.CSSProperties = {
+    top: rect.top - 4,
+    left: rect.left - 4,
+    width: rect.width + 8,
+    height: rect.height + 8,
+  };
+
+  // Card Style (Fixed)
+  const cardStyle: React.CSSProperties = {
+    width: 320,
+    maxWidth: '90vw',
+    left: Math.max(16, Math.min(window.innerWidth - 336, rect.left)), // Keep card horizontally on screen
+  };
+
+  // Logic for Above vs Below
+  if (step === 2) {
+    // Place ABOVE the element
+    // bottom = viewport height - rect top + margin
+    cardStyle.bottom = (window.innerHeight - rect.top) + 16;
+  } else {
+    // Place BELOW the element
+    cardStyle.top = rect.bottom + 16;
+  }
+
+  const parseText = (text: string) => text.split("**").map((part, i) => 
+     i % 2 === 1 ? <strong key={i} className="text-blue-800 font-semibold">{part}</strong> : part
+  );
+
+  return (
+    <div className="fixed inset-0 z-[100] pointer-events-none">
+       {/* Spotlight Ring using Box Shadow for 'hole punch' effect */}
+       <div 
+          className={cn(
+             "absolute rounded-lg border-2 border-blue-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] transition-all duration-300 ease-out",
+             visible ? "opacity-100 scale-100" : "opacity-0 scale-95"
+          )}
+          style={highlightStyle}
+       />
+
+       {/* Instruction Card */}
+       <div 
+          className={cn(
+             "absolute bg-white rounded-xl shadow-2xl p-5 border border-gray-100 pointer-events-auto transition-all duration-300 ease-out",
+             visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+          )}
+          style={cardStyle}
+       >
+          <div className="flex justify-between items-center mb-3">
+             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded">
+               Step {step} of 3
+             </span>
+             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+             </button>
+          </div>
+          <h3 className="text-base font-bold text-gray-900 mb-2">{content.title}</h3>
+          <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+             {parseText(content.text)}
+          </p>
+          <div className="flex gap-3 justify-end">
+             {step > 1 && (
+               <Button variant="secondary" onClick={onBack} className="h-8 text-xs">Back</Button>
              )}
-             <Button onClick={handleNext} className="flex-[2] shadow-lg shadow-blue-200">
-               {step === 0 ? "Start Walkthrough" : step === steps.length - 1 ? "Finish" : "Next"}
+             <Button onClick={onNext} className="h-8 text-xs px-5 shadow-blue-200 shadow-md">
+               {isLast ? "Finish" : "Next"}
              </Button>
           </div>
-        </div>
-      </div>
+       </div>
     </div>
   );
 }
@@ -462,16 +412,17 @@ export default function ClinicianCompCalculator() {
   const [incomeTaxRate, setIncomeTaxRate] = useState(22);
 
   const [baseWeeks] = useState(52);
-
+  
+  // Tour State
   const [showTour, setShowTour] = useState(false);
+  const [tourStep, setTourStep] = useState(0); // 0 = Welcome, 1..3 = Steps
   
   // Tab State
   const [activeTab, setActiveTab] = useState("inputs");
 
   useEffect(() => {
     try {
-      // Changed key to v2 to force restart for testing
-      const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v2");
+      const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v3");
       if (!seen) {
         setShowTour(true);
       }
@@ -480,14 +431,43 @@ export default function ClinicianCompCalculator() {
     }
   }, []);
 
+  const handleStartTour = () => {
+    setTourStep(1);
+    setActiveTab("inputs");
+  };
+
+  const handleNextStep = () => {
+    if (tourStep >= 3) {
+        handleTourComplete();
+        return;
+    }
+    if (tourStep === 2) {
+      setActiveTab("summary");
+    }
+    setTourStep(s => s + 1);
+  };
+
+  const handlePrevStep = () => {
+    if (tourStep === 3) {
+      setActiveTab("inputs");
+    }
+    setTourStep(s => s - 1);
+  };
+
   const handleTourComplete = () => {
     setShowTour(false);
+    setTourStep(0);
     setActiveTab("inputs");
     try {
-      localStorage.setItem("mtcs_comp_calc_tour_seen_v2", "1");
+      localStorage.setItem("mtcs_comp_calc_tour_seen_v3", "1");
     } catch (e) {
       // ignore
     }
+  };
+
+  const handleCloseTour = () => {
+    setShowTour(false);
+    setTourStep(0);
   };
 
   const hardCeilPct = rolePreset === "pre" ? 50 : 60;
@@ -607,9 +587,25 @@ export default function ClinicianCompCalculator() {
       <style>{`
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
         input[type="range"]::-moz-range-thumb { height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       `}</style>
       
-      {showTour && <OnboardingTour onComplete={handleTourComplete} setTab={setActiveTab} />}
+      {/* Step 0: Welcome Modal */}
+      {showTour && tourStep === 0 && (
+        <WelcomeModal onStart={handleStartTour} onClose={handleCloseTour} />
+      )}
+      
+      {/* Onboarding Overlay Tour */}
+      {showTour && tourStep > 0 && (
+        <OnboardingTour 
+          step={tourStep}
+          onNext={handleNextStep}
+          onBack={handlePrevStep}
+          onClose={handleCloseTour}
+          isLast={tourStep === 3}
+        />
+      )}
 
       <Tabs 
         value={activeTab} 
@@ -624,7 +620,10 @@ export default function ClinicianCompCalculator() {
                <div className="flex items-center justify-between sm:justify-start gap-3">
                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 leading-none">Comp Calculator</h1>
                  <button 
-                   onClick={() => setShowTour(true)}
+                   onClick={() => {
+                     setShowTour(true);
+                     setTourStep(0);
+                   }}
                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
                    title="Restart Tour"
                  >
@@ -656,7 +655,7 @@ export default function ClinicianCompCalculator() {
         <div className="p-4 sm:p-6 space-y-6">
           {/* Inputs */}
           <TabsContent value="inputs" className="space-y-6">
-            <div id="tour-inputs">
+            
             <Card>
               <CardContent className="grid lg:grid-cols-2 gap-8">
                 <div className="space-y-5">
@@ -726,7 +725,9 @@ export default function ClinicianCompCalculator() {
                 </div>
 
                 <div className="space-y-6">
-                  <div id="tour-slider" className="p-2 -m-2 rounded-xl">
+                  
+                  {/* Slider Section Container ID for Tour Targeting */}
+                  <div id="target-slider-container" className="p-2 -m-2 rounded-xl">
                     <div className="flex items-center mb-2">
                       <Label>Total clinician cost target (% of collections)</Label>
                       <Tooltip content="The percentage of revenue allocated to the clinician's total compensation package (salary + benefits + taxes).">
@@ -837,12 +838,10 @@ export default function ClinicianCompCalculator() {
                 </div>
               </CardContent>
             </Card>
-            </div>
           </TabsContent>
 
           {/* Summary / Comparison */}
           <TabsContent value="summary" className="space-y-6">
-            <div id="tour-summary">
             <Card>
               <CardContent className="space-y-6">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
@@ -970,7 +969,6 @@ export default function ClinicianCompCalculator() {
                     </p>
                  </CardContent>
                </Card>
-            </div>
             </div>
           </TabsContent>
 
