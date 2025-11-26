@@ -214,6 +214,56 @@ function WelcomeModal({ onStart, onClose }: { onStart: () => void; onClose: () =
   );
 }
 
+function SliderDemo() {
+  return (
+    <div className="w-full py-6 px-8 bg-gray-50 rounded-xl border border-gray-100 flex flex-col items-center justify-center gap-2 my-2">
+      <div className="w-full relative h-3 bg-gray-200 rounded-full">
+        {/* Animated Bar */}
+        <div className="absolute top-0 bottom-0 left-0 bg-blue-500 rounded-full animate-[slideWidth_3s_ease-in-out_infinite_alternate]" style={{width: '55%'}} />
+        {/* Animated Thumb */}
+        <div className="absolute top-1/2 -translate-y-1/2 bg-white border-2 border-blue-600 shadow-md w-5 h-5 rounded-full animate-[slideThumb_3s_ease-in-out_infinite_alternate]" style={{left: '55%'}} />
+      </div>
+      <div className="flex justify-between w-full text-[10px] font-medium text-gray-400 uppercase tracking-wider mt-2">
+        <span>Lower Cost</span>
+        <span>Higher Cost</span>
+      </div>
+      <style>{`
+        @keyframes slideWidth {
+          0% { width: 30%; }
+          100% { width: 70%; }
+        }
+        @keyframes slideThumb {
+          0% { left: 30%; }
+          100% { left: 70%; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function TabsDemo({ target }: { target: 'inputs' | 'summary' }) {
+  return (
+    <div className="w-full py-4 px-4 sm:px-8 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2 my-2 select-none pointer-events-none">
+      {/* Fake Header Context */}
+      <div className="w-1/3 h-2 bg-gray-200 rounded-full mb-1"></div>
+      
+      {/* Visual Tabs */}
+      <div className="grid grid-cols-4 gap-1 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
+         <div className={cn(
+           "h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all duration-500",
+           target === 'inputs' ? "bg-blue-600 text-white shadow-md scale-105" : "text-gray-300"
+         )}>Inputs</div>
+         <div className={cn(
+           "h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all duration-500",
+           target === 'summary' ? "bg-blue-600 text-white shadow-md scale-105" : "text-gray-300"
+         )}>Summary</div>
+         <div className="h-7 rounded flex items-center justify-center text-[10px] font-bold text-gray-300">W-2</div>
+         <div className="h-7 rounded flex items-center justify-center text-[10px] font-bold text-gray-300">1099</div>
+      </div>
+    </div>
+  )
+}
+
 function OnboardingTour({ 
   step, 
   onNext, 
@@ -227,49 +277,6 @@ function OnboardingTour({
   onClose: () => void; 
   isLast?: boolean;
 }) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    // Fade out/reset before moving to next step
-    setVisible(false);
-
-    const timer = setTimeout(() => {
-      let targetId = "";
-      if (step === 1) targetId = "tab-trigger-inputs";
-      if (step === 2) targetId = "target-slider-container";
-      if (step === 3) targetId = "tab-trigger-summary";
-
-      const el = document.getElementById(targetId);
-      if (!el) return;
-
-      // Scroll logic
-      const elRect = el.getBoundingClientRect();
-      const absoluteTop = elRect.top + window.scrollY;
-      
-      let targetScrollY = 0;
-      // If step 2 (slider), try to center it so there's room above and below
-      if (step === 2) {
-        targetScrollY = Math.max(0, absoluteTop - (window.innerHeight / 2));
-      } else {
-        // For header tabs, scroll to top
-        targetScrollY = 0;
-      }
-      
-      window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
-
-      // Wait for smooth scroll to finish mostly
-      setTimeout(() => {
-        const newRect = el.getBoundingClientRect();
-        setRect(newRect);
-        setVisible(true); // Trigger fade in
-      }, 500);
-
-    }, 300); // Wait for initial fade out
-
-    return () => clearTimeout(timer);
-  }, [step]);
-
   const contentMap: Record<number, { title: string; text: string }> = {
     1: { 
       title: "Enter Clinician Data", 
@@ -286,56 +293,20 @@ function OnboardingTour({
   };
   
   const content = contentMap[step];
-  
-  if (!rect || !content) return null;
-
-  // Highlight Box Style (Fixed)
-  const highlightStyle: React.CSSProperties = {
-    top: rect.top - 4,
-    left: rect.left - 4,
-    width: rect.width + 8,
-    height: rect.height + 8,
-  };
-
-  // Card Style (Fixed)
-  const cardStyle: React.CSSProperties = {
-    width: 320,
-    maxWidth: '90vw',
-    left: Math.max(16, Math.min(window.innerWidth - 336, rect.left)), // Keep card horizontally on screen
-  };
-
-  // Logic for Above vs Below
-  if (step === 2) {
-    // Place ABOVE the element
-    // bottom = viewport height - rect top + margin
-    cardStyle.bottom = (window.innerHeight - rect.top) + 16;
-  } else {
-    // Place BELOW the element
-    cardStyle.top = rect.bottom + 16;
-  }
+  if (!content) return null;
 
   const parseText = (text: string) => text.split("**").map((part, i) => 
      i % 2 === 1 ? <strong key={i} className="text-blue-800 font-semibold">{part}</strong> : part
   );
 
   return (
-    <div className="fixed inset-0 z-[100] pointer-events-none">
-       {/* Spotlight Ring using Box Shadow for 'hole punch' effect */}
-       <div 
-          className={cn(
-             "absolute rounded-lg border-2 border-blue-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] transition-all duration-300 ease-out",
-             visible ? "opacity-100 scale-100" : "opacity-0 scale-95"
-          )}
-          style={highlightStyle}
-       />
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] sm:pt-[20vh] px-4 pointer-events-auto">
+       {/* Backdrop */}
+       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
 
        {/* Instruction Card */}
        <div 
-          className={cn(
-             "absolute bg-white rounded-xl shadow-2xl p-5 border border-gray-100 pointer-events-auto transition-all duration-300 ease-out",
-             visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-          )}
-          style={cardStyle}
+          className="relative bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-in fade-in zoom-in-95 duration-300"
        >
           <div className="flex justify-between items-center mb-3">
              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded">
@@ -345,10 +316,17 @@ function OnboardingTour({
                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
              </button>
           </div>
-          <h3 className="text-base font-bold text-gray-900 mb-2">{content.title}</h3>
+          
+          <h3 className="text-lg font-bold text-gray-900 mb-2">{content.title}</h3>
+          
+          {step === 1 && <TabsDemo target="inputs" />}
+          {step === 2 && <SliderDemo />}
+          {step === 3 && <TabsDemo target="summary" />}
+
           <p className="text-sm text-gray-600 mb-5 leading-relaxed">
              {parseText(content.text)}
           </p>
+          
           <div className="flex gap-3 justify-end">
              {step > 1 && (
                <Button variant="secondary" onClick={onBack} className="h-8 text-xs">Back</Button>
