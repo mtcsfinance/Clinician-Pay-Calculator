@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { cn, clamp, fmtUSD, fmtUSD2, fmtPct, toNum } from "./utils";
 import {
   Card,
@@ -87,9 +87,9 @@ function PercentSlider({ value, onChange, min = -20, max = 20 }: any) {
 
 function BadgeStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500">{label}</div>
-      <div className="text-sm font-bold text-gray-900">{value}</div>
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm w-full">
+      <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 truncate">{label}</div>
+      <div className="text-sm font-bold text-gray-900 truncate">{value}</div>
     </div>
   );
 }
@@ -184,6 +184,198 @@ function DistributionBar({ segments, total, height = "h-4" }: { segments: { labe
   )
 }
 
+// --- Onboarding Tour ---
+
+function OnboardingTour({ 
+  onComplete, 
+  setTab 
+}: { 
+  onComplete: () => void, 
+  setTab: (t: string) => void 
+}) {
+  const [step, setStep] = useState(0);
+  const [spotlightRect, setSpotlightRect] = useState<DOMRect | null>(null);
+
+  const steps = [
+    {
+      title: "Welcome to the Calculator",
+      body: "This tool helps practice owners and clinicians model transparent, sustainable compensation plans. Let's get you oriented in 3 quick steps.",
+      targetId: null, // Center modal
+      tab: "inputs"
+    },
+    {
+      title: "1. Enter Practice Data",
+      body: "Start in the **Inputs** tab. Enter your session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
+      targetId: "tour-inputs",
+      tab: "inputs"
+    },
+    {
+      title: "2. Set the Target Ratio",
+      body: "The **Target Slider** is your main lever. It sets the percentage of revenue allocated to the clinician's total cost of employment (Salary + Taxes + Benefits).",
+      targetId: "tour-slider",
+      tab: "inputs"
+    },
+    {
+      title: "3. Compare W-2 vs 1099",
+      body: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment.",
+      targetId: "tour-summary",
+      tab: "summary"
+    }
+  ];
+
+  const current = steps[step];
+
+  // Smart Scroll Helper
+  const scrollToTarget = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    
+    // We need to account for the sticky header height (approx 180px on desktop, 220px on mobile)
+    const headerOffset = 240; 
+    const elementPosition = el.getBoundingClientRect().top;
+    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+  
+    window.scrollTo({
+      top: offsetPosition,
+      behavior: "smooth"
+    });
+  };
+
+  // Effect to handle navigation and measurement
+  useEffect(() => {
+    // 1. Switch tab if needed
+    if (current.tab) {
+      setTab(current.tab);
+    }
+
+    // 2. Wait for render, then measure target
+    const timer = setTimeout(() => {
+      if (current.targetId) {
+        scrollToTarget(current.targetId);
+        
+        // Wait a bit more for scroll to finish before setting highlight rect
+        setTimeout(() => {
+          const el = document.getElementById(current.targetId!);
+          if (el) {
+            setSpotlightRect(el.getBoundingClientRect());
+          }
+        }, 300);
+      } else {
+        setSpotlightRect(null);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [step, current.tab, current.targetId, setTab]);
+
+  const handleNext = () => {
+    if (step < steps.length - 1) {
+      setStep(s => s + 1);
+    } else {
+      onComplete();
+    }
+  };
+
+  // Resize listener to update spotlight
+  useEffect(() => {
+    const handleResize = () => {
+      if (current.targetId) {
+        const el = document.getElementById(current.targetId);
+        if (el) setSpotlightRect(el.getBoundingClientRect());
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleResize);
+    };
+  }, [current.targetId]);
+
+  return (
+    <div className="fixed inset-0 z-[100] overflow-hidden font-sans">
+      
+      {/* 
+         Backdrop Logic:
+         1. If NO highlight (Step 0), use a full screen dim layer.
+         2. If Highlight exists, the Highlight Ring's massive shadow provides the dimming.
+      */}
+      {!spotlightRect && (
+        <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-[2px] transition-all duration-500" />
+      )}
+
+      {/* 
+        Highlight Ring with "Hole Punch" Shadow:
+        The box-shadow: 0 0 0 9999px rgba(...) trick draws a shadow extending OUTWARDS
+        from the element to infinity. This leaves the element itself (and its border)
+        clear, effectively creating a "window" through to the content below.
+      */}
+      {spotlightRect && (
+        <div 
+          className="absolute transition-all duration-300 ease-out rounded-xl pointer-events-none border-[3px] border-blue-500 z-[110]"
+          style={{
+            // Use viewport coordinates (rect.top/left) because parent is fixed
+            top: spotlightRect.top - 4, 
+            left: spotlightRect.left - 4,
+            width: spotlightRect.width + 8,
+            height: spotlightRect.height + 8,
+            boxShadow: '0 0 0 9999px rgba(17, 24, 39, 0.75)'
+          }}
+        />
+      )}
+
+      {/* 
+        Controls Container:
+        If step 0 (Welcome): Center Modal.
+        If step 1+ (Walkthrough): Bottom Sheet / Floating Card at Bottom.
+      */}
+      <div className={cn(
+        "fixed inset-0 z-[120] pointer-events-none flex p-4",
+        step === 0 ? "items-center justify-center" : "items-end justify-center sm:pb-8"
+      )}>
+        <div className={cn(
+          "pointer-events-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 max-w-md w-full border border-gray-100",
+          step === 0 ? "" : "mb-4 sm:mb-0" // Add margin on mobile bottom
+        )}>
+          
+          {/* Header & Close */}
+          <div className="px-6 pt-5 flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
+              {step === 0 ? "Start" : `Step ${step} of 3`}
+            </span>
+            <button onClick={onComplete} className="text-gray-400 hover:text-gray-600">
+              <span className="sr-only">Close</span>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          
+          <div className="p-6 space-y-4">
+            <div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">{current.title}</h3>
+              <p className="text-gray-600 leading-relaxed text-sm">
+                 {current.body.split("**").map((part, i) => 
+                   i % 2 === 1 ? <strong key={i} className="text-blue-700 font-semibold">{part}</strong> : part
+                 )}
+              </p>
+            </div>
+          </div>
+
+          <div className="px-6 pb-6 pt-2 flex items-center gap-3">
+             {step > 0 && (
+               <Button variant="ghost" onClick={() => setStep(s => s - 1)} className="flex-1">
+                 Back
+               </Button>
+             )}
+             <Button onClick={handleNext} className="flex-[2] shadow-lg shadow-blue-200">
+               {step === 0 ? "Start Walkthrough" : step === steps.length - 1 ? "Finish" : "Next"}
+             </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Business logic ---
 
 function effectiveWorkingWeeks(ptoDays: number, holidayDays: number, sickDays: number) {
@@ -234,6 +426,32 @@ export default function ClinicianCompCalculator() {
   const [incomeTaxRate, setIncomeTaxRate] = useState(22);
 
   const [baseWeeks] = useState(52);
+
+  const [showTour, setShowTour] = useState(false);
+  
+  // Tab State
+  const [activeTab, setActiveTab] = useState("inputs");
+
+  useEffect(() => {
+    try {
+      // Changed key to v2 to force restart for testing
+      const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v2");
+      if (!seen) {
+        setShowTour(true);
+      }
+    } catch (e) {
+      // ignore storage errors
+    }
+  }, []);
+
+  const handleTourComplete = () => {
+    setShowTour(false);
+    try {
+      localStorage.setItem("mtcs_comp_calc_tour_seen_v2", "1");
+    } catch (e) {
+      // ignore
+    }
+  };
 
   const hardCeilPct = rolePreset === "pre" ? 50 : 60;
   const setTargetRatioPct = (v: number) => setTargetRatioPctRaw(clamp(v, 0, hardCeilPct));
@@ -353,19 +571,39 @@ export default function ClinicianCompCalculator() {
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
         input[type="range"]::-moz-range-thumb { height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
       `}</style>
+      
+      {showTour && <OnboardingTour onComplete={handleTourComplete} setTab={setActiveTab} />}
 
-      <Tabs defaultValue="inputs" className="w-full max-w-6xl mx-auto">
+      <Tabs 
+        value={activeTab} 
+        onValueChange={setActiveTab} 
+        defaultValue="inputs" 
+        className="w-full max-w-6xl mx-auto"
+      >
         {/* Sticky Header Wrapper */}
         <div className="sticky top-0 z-40 bg-gray-50/95 backdrop-blur-md shadow-sm border-b border-gray-200 transition-all">
           <div className="px-4 py-3 sm:px-6 sm:py-4 max-w-6xl mx-auto space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 leading-none">Comp Calculator</h1>
+               <div className="flex items-center justify-between sm:justify-start gap-3">
+                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 leading-none">Comp Calculator</h1>
+                 <button 
+                   onClick={() => setShowTour(true)}
+                   className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                   title="Restart Tour"
+                 >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                 </button>
+               </div>
                {/* Stats Grid moved inside sticky header */}
-               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full sm:w-auto">
-                 <BadgeStat label="Net / Session" value={fmtUSD(netPerSession)} />
-                 <BadgeStat label="Target" value={`${(targetRatio * 100).toFixed(1)}%`} />
-                 <BadgeStat label="Revenue" value={fmtUSD(annualCollections)} />
-                 <BadgeStat label="Margin (W2)" value={fmtUSD(marginW2)} />
+               <div className="flex overflow-x-auto pb-2 sm:pb-0 gap-2 w-full sm:w-auto sm:grid sm:grid-cols-4 snap-x no-scrollbar">
+                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Net / Session" value={fmtUSD(netPerSession)} /></div>
+                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Target" value={`${(targetRatio * 100).toFixed(1)}%`} /></div>
+                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Revenue" value={fmtUSD(annualCollections)} /></div>
+                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Margin (W2)" value={fmtUSD(marginW2)} /></div>
                </div>
             </div>
             
@@ -381,6 +619,7 @@ export default function ClinicianCompCalculator() {
         <div className="p-4 sm:p-6 space-y-6">
           {/* Inputs */}
           <TabsContent value="inputs" className="space-y-6">
+            <div id="tour-inputs">
             <Card>
               <CardContent className="grid lg:grid-cols-2 gap-8">
                 <div className="space-y-5">
@@ -403,36 +642,36 @@ export default function ClinicianCompCalculator() {
                       <CurrencyInput value={netRate} onChange={setNetRate} />
                     </Field>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <Field label="Gross payout per session" tooltip="The full billed amount or contract rate before any fees.">
+                    <div className="grid grid-cols-2 gap-4">
+                      <Field label="Gross payout" tooltip="The full billed amount or contract rate before any fees.">
                         <CurrencyInput value={grossRate} onChange={setGrossRate} />
                       </Field>
-                      <Field label="Processing fees" tooltip="Percentage taken by credit card processors or billing services.">
+                      <Field label="Proc. fees" tooltip="Percentage taken by credit card processors or billing services.">
                         <PercentInput value={procFeePct} onChange={setProcFeePct} />
                       </Field>
-                      <div className="col-span-1 md:col-span-2 text-xs text-gray-700">
+                      <div className="col-span-2 text-xs text-gray-700">
                         Net per session = gross × (1 − fees%).
                       </div>
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Field label="Sessions per week" tooltip="Average number of billable client sessions held per week.">
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Sessions/wk" tooltip="Average number of billable client sessions held per week.">
                       <NumberInput value={sessionsPerWeek} onChange={setSessionsPerWeek} />
                     </Field>
-                    <Field label="Base working weeks (fixed)" tooltip="Total weeks in a year.">
+                    <Field label="Weeks/yr" tooltip="Total weeks in a year.">
                       <Input value={String(baseWeeks)} readOnly disabled aria-disabled="true" />
                     </Field>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <Field label="PTO days" tooltip="Number of paid vacation days per year.">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Field label="PTO" tooltip="Number of paid vacation days per year.">
                       <NumberInput value={ptoDays} onChange={setPtoDays} />
                     </Field>
-                    <Field label="Holiday days" tooltip="Number of paid holidays observed per year.">
+                    <Field label="Holidays" tooltip="Number of paid holidays observed per year.">
                       <NumberInput value={holidayDays} onChange={setHolidayDays} />
                     </Field>
-                    <Field label="Paid sick days" tooltip="Number of paid sick days allocated per year.">
+                    <Field label="Sick" tooltip="Number of paid sick days allocated per year.">
                       <NumberInput value={sickDays} onChange={setSickDays} />
                     </Field>
                   </div>
@@ -450,7 +689,7 @@ export default function ClinicianCompCalculator() {
                 </div>
 
                 <div className="space-y-6">
-                  <div>
+                  <div id="tour-slider" className="p-2 -m-2 rounded-xl">
                     <div className="flex items-center mb-2">
                       <Label>Total clinician cost target (% of collections)</Label>
                       <Tooltip content="The percentage of revenue allocated to the clinician's total compensation package (salary + benefits + taxes).">
@@ -479,17 +718,19 @@ export default function ClinicianCompCalculator() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Field label="Employer payroll tax" tooltip="Estimated employer-side payroll taxes (e.g., FICA, FUTA, SUTA).">
-                      <PercentInput value={payrollLoadPct} onChange={setPayrollLoadPct} />
-                    </Field>
-                    <Field label="401(k) match" tooltip="Percentage of salary the employer matches for retirement.">
-                      <PercentInput value={matchPct} onChange={setMatchPct} />
-                    </Field>
-                    <Field label="Health (annual)" tooltip="Annual employer contribution towards health insurance premiums. Also used as the estimated cost for private insurance in the 1099 model.">
-                      <CurrencyInput value={annualHealth} onChange={setAnnualHealth} />
-                    </Field>
-                  </div>
+                  <AccordionLike title="Taxes & Benefits">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <Field label="Employer payroll tax" tooltip="Estimated employer-side payroll taxes (e.g., FICA, FUTA, SUTA).">
+                        <PercentInput value={payrollLoadPct} onChange={setPayrollLoadPct} />
+                      </Field>
+                      <Field label="401(k) match" tooltip="Percentage of salary the employer matches for retirement.">
+                        <PercentInput value={matchPct} onChange={setMatchPct} />
+                      </Field>
+                      <Field label="Health (annual)" tooltip="Annual employer contribution towards health insurance premiums. Also used as the estimated cost for private insurance in the 1099 model.">
+                        <CurrencyInput value={annualHealth} onChange={setAnnualHealth} />
+                      </Field>
+                    </div>
+                  </AccordionLike>
 
                   <div className="rounded-xl border border-gray-200 p-4 bg-gray-50 space-y-3">
                     <div className="flex items-center justify-between">
@@ -559,10 +800,12 @@ export default function ClinicianCompCalculator() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           </TabsContent>
 
           {/* Summary / Comparison */}
           <TabsContent value="summary" className="space-y-6">
+            <div id="tour-summary">
             <Card>
               <CardContent className="space-y-6">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
@@ -690,6 +933,7 @@ export default function ClinicianCompCalculator() {
                     </p>
                  </CardContent>
                </Card>
+            </div>
             </div>
           </TabsContent>
 

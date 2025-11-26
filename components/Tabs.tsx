@@ -3,9 +3,24 @@ import { cn } from "../utils";
 
 const TabsCtx = createContext<{ active: string; setActive: (v: string) => void } | null>(null);
 
-// Fix: make children optional
-export function Tabs({ defaultValue, children, className }: { defaultValue: string; children?: React.ReactNode; className?: string }) {
-  const [active, setActive] = useState(defaultValue);
+export function Tabs({ 
+  value, 
+  onValueChange, 
+  defaultValue, 
+  children, 
+  className 
+}: { 
+  value?: string;
+  onValueChange?: (v: string) => void;
+  defaultValue?: string; 
+  children?: React.ReactNode; 
+  className?: string 
+}) {
+  const [internalActive, setInternalActive] = useState(defaultValue || "");
+  
+  const active = value !== undefined ? value : internalActive;
+  const setActive = onValueChange || setInternalActive;
+
   return (
     <TabsCtx.Provider value={{ active, setActive }}>
       <div className={className}>{children}</div>
@@ -13,12 +28,10 @@ export function Tabs({ defaultValue, children, className }: { defaultValue: stri
   );
 }
 
-// Fix: make children optional
 export function TabsList({ className, children }: { className?: string; children?: React.ReactNode }) {
   return <div className={cn("rounded-xl border border-gray-200 p-1 grid bg-white", className)}>{children}</div>;
 }
 
-// Fix: make children optional
 export function TabsTrigger({ value, children }: { value: string; children?: React.ReactNode }) {
   const ctx = useContext(TabsCtx);
   const isActive = ctx?.active === value;
@@ -35,7 +48,6 @@ export function TabsTrigger({ value, children }: { value: string; children?: Rea
   );
 }
 
-// Fix: make children optional
 export function TabsContent({ value, children, className }: { value: string; children?: React.ReactNode; className?: string }) {
   const ctx = useContext(TabsCtx);
   if (ctx?.active !== value) return null;
