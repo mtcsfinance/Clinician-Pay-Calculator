@@ -199,13 +199,13 @@ function OnboardingTour({
   const steps = [
     {
       title: "Welcome to the Calculator",
-      body: "This tool helps practice owners and clinicians model transparent, sustainable compensation plans. Let's get you oriented in 3 quick steps.",
+      body: "This tool helps practice owners model transparent, sustainable compensation plans for clinicians. Let's get you oriented in 3 quick steps.",
       targetId: null, // Center modal
       tab: "inputs"
     },
     {
-      title: "1. Enter Practice Data",
-      body: "Start in the **Inputs** tab. Enter your session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
+      title: "1. Enter Clinician Data",
+      body: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
       targetId: "tour-inputs",
       tab: "inputs"
     },
@@ -292,6 +292,10 @@ function OnboardingTour({
     };
   }, [current.targetId]);
 
+  // Adaptive Card Position Logic
+  // If highlight is in bottom 40% of screen, move card to top.
+  const isHighlightBottom = spotlightRect && spotlightRect.top > window.innerHeight * 0.6;
+
   return (
     <div className="fixed inset-0 z-[100] overflow-hidden font-sans">
       
@@ -326,16 +330,19 @@ function OnboardingTour({
 
       {/* 
         Controls Container:
-        If step 0 (Welcome): Center Modal.
-        If step 1+ (Walkthrough): Bottom Sheet / Floating Card at Bottom.
+        Adaptive positioning based on spotlight location to prevent covering content.
       */}
       <div className={cn(
         "fixed inset-0 z-[120] pointer-events-none flex p-4",
-        step === 0 ? "items-center justify-center" : "items-end justify-center sm:pb-8"
+        step === 0 
+          ? "items-center justify-center" 
+          : isHighlightBottom
+            ? "items-start justify-center pt-32 sm:pt-48" // Position Top if element is at bottom
+            : "items-end justify-center sm:pb-8"        // Position Bottom if element is at top
       )}>
         <div className={cn(
           "pointer-events-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 max-w-md w-full border border-gray-100",
-          step === 0 ? "" : "mb-4 sm:mb-0" // Add margin on mobile bottom
+          step !== 0 && !isHighlightBottom ? "mb-4 sm:mb-0" : ""
         )}>
           
           {/* Header & Close */}
@@ -446,6 +453,7 @@ export default function ClinicianCompCalculator() {
 
   const handleTourComplete = () => {
     setShowTour(false);
+    setActiveTab("inputs");
     try {
       localStorage.setItem("mtcs_comp_calc_tour_seen_v2", "1");
     } catch (e) {
