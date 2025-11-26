@@ -206,7 +206,7 @@ function OnboardingTour({
     {
       title: "1. Enter Clinician Data",
       body: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician.",
-      targetId: "tab-trigger-inputs", // Updated to highlight tab
+      targetId: "tab-trigger-inputs", 
       tab: "inputs"
     },
     {
@@ -218,7 +218,7 @@ function OnboardingTour({
     {
       title: "3. Compare W-2 vs 1099",
       body: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment.",
-      targetId: "tab-trigger-summary", // Updated to highlight tab
+      targetId: "tab-trigger-summary", 
       tab: "summary"
     }
   ];
@@ -237,7 +237,8 @@ function OnboardingTour({
     if (!el) return;
     
     // We need to account for the sticky header height (approx 180px on desktop, 220px on mobile)
-    const headerOffset = 240; 
+    // We increase this offset slightly to ensure room for "Bottom Sheet" cards or "Top Sheet" cards
+    const headerOffset = 300; 
     const elementPosition = el.getBoundingClientRect().top;
     const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
   
@@ -275,11 +276,18 @@ function OnboardingTour({
   }, [step, current.tab, current.targetId, setTab]);
 
   const handleNext = () => {
+    // Clear rect to prevent jumping transition
+    setSpotlightRect(null);
     if (step < steps.length - 1) {
       setStep(s => s + 1);
     } else {
       onComplete();
     }
+  };
+
+  const handleBack = () => {
+    setSpotlightRect(null);
+    setStep(s => s - 1);
   };
 
   // Resize listener to update spotlight
@@ -298,12 +306,34 @@ function OnboardingTour({
     };
   }, [current.targetId]);
 
-  // Adaptive Card Position Logic
-  // If highlight is in bottom 40% of screen, move card to top.
-  const isHighlightBottom = spotlightRect && spotlightRect.top > window.innerHeight * 0.6;
+  // Determine card style based on step and spotlight
+  let cardStyle: React.CSSProperties = {
+    left: '50%',
+    zIndex: 120
+  };
+
+  if (step === 0) {
+    // Step 0: Fixed position near top for visibility in tall iframes
+    cardStyle.top = '180px';
+    cardStyle.transform = 'translateX(-50%)';
+  } else if (spotlightRect) {
+    // Specific logic for Step 2 (Slider): Place Card ABOVE the target
+    if (step === 2) {
+      cardStyle.top = `${spotlightRect.top - 24}px`;
+      cardStyle.transform = 'translate(-50%, -100%)';
+    } else {
+      // Steps 1 & 3: Place Card BELOW the target
+      cardStyle.top = `${spotlightRect.bottom + 24}px`;
+      cardStyle.transform = 'translateX(-50%)';
+    }
+  } else {
+    // Fallback if measurement fails
+    cardStyle.top = '180px';
+    cardStyle.transform = 'translateX(-50%)';
+  }
 
   return (
-    <div className="fixed inset-0 z-[100] overflow-hidden font-sans">
+    <div className="fixed inset-0 z-[100] font-sans">
       
       {/* 
          Backdrop Logic:
@@ -316,15 +346,12 @@ function OnboardingTour({
 
       {/* 
         Highlight Ring with "Hole Punch" Shadow:
-        The box-shadow: 0 0 0 9999px rgba(...) trick draws a shadow extending OUTWARDS
-        from the element to infinity. This leaves the element itself (and its border)
-        clear, effectively creating a "window" through to the content below.
       */}
       {spotlightRect && (
         <div 
-          className="absolute transition-all duration-300 ease-out rounded-xl pointer-events-none border-[3px] border-blue-500 z-[110]"
+          className="absolute transition-all duration-300 ease-out rounded-lg pointer-events-none border-[3px] border-blue-500 z-[110]"
           style={{
-            // Use viewport coordinates (rect.top/left) because parent is fixed
+            // Use viewport coordinates (rect.top/left)
             top: spotlightRect.top - 4, 
             left: spotlightRect.left - 4,
             width: spotlightRect.width + 8,
@@ -335,26 +362,16 @@ function OnboardingTour({
       )}
 
       {/* 
-        Controls Container:
-        Adaptive positioning based on spotlight location to prevent covering content.
+        Card Container:
+        Uses calculated fixed position (top/left) to stay with content
       */}
-      <div className={cn(
-        "fixed inset-0 z-[120] pointer-events-none flex p-4",
-        step === 0 
-          ? "items-center justify-center" 
-          : isHighlightBottom
-            ? "items-start justify-center pt-32 sm:pt-48" // Position Top if element is at bottom
-            : "items-end justify-center sm:pb-8"        // Position Bottom if element is at top
-      )}>
+      <div 
+        className="absolute w-full max-w-md px-4 z-[120]"
+        style={cardStyle}
+      >
         <div 
-          className={cn(
-            "pointer-events-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 max-w-md w-full border border-gray-100 relative",
-            step !== 0 && !isHighlightBottom ? "mb-4 sm:mb-0" : ""
-          )}
-          style={step !== 0 ? {
-            // If targeted element is known, try to stick close to it (Desktop optimization)
-            // But simplify for mobile/header targets to just be at bottom of screen
-          } : {}}
+          key={step}
+          className="bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-300 border border-gray-100"
         >
           
           {/* Header & Close */}
@@ -381,7 +398,7 @@ function OnboardingTour({
 
           <div className="px-6 pb-6 pt-2 flex items-center gap-3">
              {step > 0 && (
-               <Button variant="ghost" onClick={() => setStep(s => s - 1)} className="flex-1">
+               <Button variant="ghost" onClick={handleBack} className="flex-1">
                  Back
                </Button>
              )}
