@@ -1,5 +1,6 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { cn, clamp, fmtUSD, fmtUSD2, fmtPct, toNum } from "./utils";
+import React, { useMemo, useState, useEffect } from "react";
+import { cn, clamp, fmtUSD, fmtUSD2, fmtPct, toNum, decodeState } from "./utils";
+import { effectiveWorkingWeeks, solveAnnualW2Base, getMarginStatus } from "./logic";
 import {
   Card,
   CardContent,
@@ -8,30 +9,44 @@ import {
   Label,
   Switch,
   Slider,
-  CopyIcon,
-  InfoIcon,
-  Tooltip
+  Tooltip,
+  InfoIcon
 } from "./components/ui";
+import { 
+  Field, 
+  RowSwitch, 
+  AccordionLike, 
+  DistributionBar, 
+  MarginBadge 
+} from "./components/ui-extended";
+import { 
+  ScenarioPresets, 
+  ReportCaptureModal, 
+  WelcomeModal, 
+  OnboardingTour,
+  AccessGateModal
+} from "./components/CalculatorFeatures";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/Tabs";
 
-// --- Helper components ---
+// --- Custom Hook for Persistence ---
+function useStickyState<T>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const stickyValue = window.localStorage.getItem(key);
+      return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
+    } catch (err) {
+      return defaultValue;
+    }
+  });
 
-function Field({ label, hint, tooltip, children }: { label?: string; hint?: string; tooltip?: string; children?: React.ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center">
-        {label && <Label>{label}</Label>}
-        {tooltip && (
-          <Tooltip content={tooltip}>
-            <InfoIcon />
-          </Tooltip>
-        )}
-      </div>
-      {children}
-      {hint && <div className="text-xs text-gray-600">{hint}</div>}
-    </div>
-  );
+  useEffect(() => {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+
+  return [value, setValue];
 }
+
+// --- Helper Input Components ---
 
 function NumberInput({ value, onChange, min, max, step = 1 }: any) {
   return (
@@ -46,24 +61,26 @@ function NumberInput({ value, onChange, min, max, step = 1 }: any) {
   );
 }
 
-function CurrencyInput({ value, onChange }: any) {
+function CurrencyInput({ value, onChange, min }: any) {
   return (
     <Input
       inputMode="decimal"
       value={String(value)}
       onChange={(e: any) => onChange(toNum(e.target.value))}
       placeholder="$0.00"
+      min={min}
     />
   );
 }
 
-function PercentInput({ value, onChange }: any) {
+function PercentInput({ value, onChange, className }: any) {
   return (
     <Input
       inputMode="decimal"
       value={String(value)}
       onChange={(e: any) => onChange(toNum(e.target.value))}
       placeholder="0%"
+      className={className}
     />
   );
 }
@@ -85,329 +102,122 @@ function PercentSlider({ value, onChange, min = -20, max = 20 }: any) {
   );
 }
 
-function BadgeStat({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm w-full">
-      <div className="text-[10px] uppercase tracking-wider font-semibold text-gray-500 truncate">{label}</div>
-      <div className="text-sm font-bold text-gray-900 truncate">{value}</div>
-    </div>
-  );
-}
+// --- Constants ---
+const CTA_URL = "https://marketing.mtcsbusinessfinance.com/wa-schedule-your-call?utm_source=calculator&utm_medium=web_app&utm_campaign=header_cta";
 
-function LegendSwatch({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="inline-flex items-center gap-2">
-      <span className={cn("inline-block h-3 w-3 rounded-sm", color)} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function RowSwitch({ label, checked, onChange, tooltip }: { label: string; checked: boolean; onChange: (v: boolean) => void; tooltip?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="flex items-center">
-        <Label className="mr-2">{label}</Label>
-        {tooltip && (
-          <Tooltip content={tooltip}>
-            <InfoIcon />
-          </Tooltip>
-        )}
-      </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
-    </div>
-  );
-}
-
-function AccordionLike({ title, children }: { title: string; children?: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white">
-      <button
-        className="w-full text-left px-4 py-3 flex items-center justify-between"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="font-semibold text-gray-900">{title}</span>
-        <span className="text-gray-600">{open ? "−" : "+"}</span>
-      </button>
-      {open && <div className="px-4 pb-4 border-t border-gray-100 pt-4">{children}</div>}
-    </div>
-  );
-}
-
-function MetricBox({ label, value, sub, copyable }: { label: string; value: React.ReactNode; sub?: string; copyable?: string }) {
-  const doCopy = () => {
-    if (!copyable) return;
-    navigator.clipboard?.writeText(String(copyable));
-  };
-  return (
-    <div className="rounded-lg border border-gray-200 p-3 bg-white shadow-sm">
-      <div className="text-[11px] font-bold text-gray-500 uppercase flex items-center justify-between mb-1">
-        <span>{label}</span>
-        {copyable && (
-          <button
-            onClick={doCopy}
-            className="text-gray-400 hover:text-gray-700"
-            title="Copy"
-          >
-            <CopyIcon />
-          </button>
-        )}
-      </div>
-      <div className="text-lg font-bold text-gray-900">{value}</div>
-      {sub && <div className="text-[11px] text-gray-500 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function DistributionBar({ segments, total, height = "h-4" }: { segments: { label: string; value: number; color: string }[]; total: number; height?: string }) {
-  return (
-    <div className="w-full space-y-2">
-      <div className={cn("w-full rounded-full overflow-hidden flex", height)}>
-        {segments.map((s, i) => {
-           const pct = total > 0 ? (s.value / total) * 100 : 0;
-           if (pct < 0.1) return null;
-           return (
-             <div key={i} style={{ width: `${pct}%` }} className={s.color} title={`${s.label}: ${fmtUSD(s.value)} (${pct.toFixed(1)}%)`} />
-           );
-        })}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-600">
-        {segments.map((s, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-             <div className={cn("w-2.5 h-2.5 rounded-sm", s.color)} />
-             <span>{s.label} ({Math.round(total > 0 ? (s.value/total)*100 : 0)}%)</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// --- Onboarding Components ---
-
-function WelcomeModal({ onStart, onClose }: { onStart: () => void; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] sm:pt-[20vh] px-4 pointer-events-auto">
-      <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-300">
-        <div className="flex justify-between items-start">
-           <span className="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded-md">
-              Start
-           </span>
-           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-              <span className="sr-only">Close</span>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-           </button>
-        </div>
-        <div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">Welcome to the Calculator</h3>
-          <p className="text-gray-600 leading-relaxed text-sm">
-            This tool helps practice owners model transparent, sustainable compensation plans for clinicians. Let's get you oriented in 3 quick steps.
-          </p>
-        </div>
-        <Button onClick={onStart} className="w-full shadow-lg shadow-blue-200">
-          Start Walkthrough
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function SliderDemo() {
-  return (
-    <div className="w-full py-6 px-8 bg-gray-50 rounded-xl border border-gray-100 flex flex-col items-center justify-center gap-2 my-2">
-      <div className="w-full relative h-3 bg-gray-200 rounded-full">
-        {/* Animated Bar */}
-        <div className="absolute top-0 bottom-0 left-0 bg-blue-500 rounded-full animate-[slideWidth_3s_ease-in-out_infinite_alternate]" style={{width: '55%'}} />
-        {/* Animated Thumb */}
-        <div className="absolute top-1/2 -translate-y-1/2 bg-white border-2 border-blue-600 shadow-md w-5 h-5 rounded-full animate-[slideThumb_3s_ease-in-out_infinite_alternate]" style={{left: '55%'}} />
-      </div>
-      <div className="flex justify-between w-full text-[10px] font-medium text-gray-400 uppercase tracking-wider mt-2">
-        <span>Lower Cost</span>
-        <span>Higher Cost</span>
-      </div>
-      <style>{`
-        @keyframes slideWidth {
-          0% { width: 30%; }
-          100% { width: 70%; }
-        }
-        @keyframes slideThumb {
-          0% { left: 30%; }
-          100% { left: 70%; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function TabsDemo({ target }: { target: 'inputs' | 'summary' }) {
-  return (
-    <div className="w-full py-4 px-4 sm:px-8 bg-gray-50 rounded-xl border border-gray-100 flex flex-col gap-2 my-2 select-none pointer-events-none">
-      {/* Fake Header Context */}
-      <div className="w-1/3 h-2 bg-gray-200 rounded-full mb-1"></div>
-      
-      {/* Visual Tabs */}
-      <div className="grid grid-cols-4 gap-1 p-1 bg-white border border-gray-200 rounded-lg shadow-sm">
-         <div className={cn(
-           "h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all duration-500",
-           target === 'inputs' ? "bg-blue-600 text-white shadow-md scale-105" : "text-gray-300"
-         )}>Inputs</div>
-         <div className={cn(
-           "h-7 rounded flex items-center justify-center text-[10px] font-bold transition-all duration-500",
-           target === 'summary' ? "bg-blue-600 text-white shadow-md scale-105" : "text-gray-300"
-         )}>Summary</div>
-         <div className="h-7 rounded flex items-center justify-center text-[10px] font-bold text-gray-300">W-2</div>
-         <div className="h-7 rounded flex items-center justify-center text-[10px] font-bold text-gray-300">1099</div>
-      </div>
-    </div>
-  )
-}
-
-function OnboardingTour({ 
-  step, 
-  onNext, 
-  onBack, 
-  onClose,
-  isLast 
-}: { 
-  step: number; 
-  onNext: () => void; 
-  onBack: () => void; 
-  onClose: () => void; 
-  isLast?: boolean;
-}) {
-  const contentMap: Record<number, { title: string; text: string }> = {
-    1: { 
-      title: "Enter Clinician Data", 
-      text: "Start in the **Inputs** tab. Enter the clinician's session rates, weekly caseload, and time off. This establishes the revenue baseline for the clinician." 
-    },
-    2: { 
-      title: "Set the Target Ratio", 
-      text: "The **Target Slider** is your main lever. It sets the percentage of revenue allocated to the clinician's total cost of employment (Salary + Taxes + Benefits)." 
-    },
-    3: { 
-      title: "Compare W-2 vs 1099", 
-      text: "Go to the **Summary** tab to see a side-by-side comparison of take-home pay, estimated taxes, and practice margins for W-2 vs 1099 employment." 
-    }
-  };
-  
-  const content = contentMap[step];
-  if (!content) return null;
-
-  const parseText = (text: string) => text.split("**").map((part, i) => 
-     i % 2 === 1 ? <strong key={i} className="text-blue-800 font-semibold">{part}</strong> : part
-  );
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] sm:pt-[20vh] px-4 pointer-events-auto">
-       {/* Backdrop */}
-       <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
-
-       {/* Instruction Card */}
-       <div 
-          className="relative bg-white rounded-xl shadow-2xl p-6 w-full max-w-md animate-in fade-in zoom-in-95 duration-300"
-       >
-          <div className="flex justify-between items-center mb-3">
-             <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-1 rounded">
-               Step {step} of 3
-             </span>
-             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
-               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-             </button>
-          </div>
-          
-          <h3 className="text-lg font-bold text-gray-900 mb-2">{content.title}</h3>
-          
-          {step === 1 && <TabsDemo target="inputs" />}
-          {step === 2 && <SliderDemo />}
-          {step === 3 && <TabsDemo target="summary" />}
-
-          <p className="text-sm text-gray-600 mb-5 leading-relaxed">
-             {parseText(content.text)}
-          </p>
-          
-          <div className="flex gap-3 justify-end">
-             {step > 1 && (
-               <Button variant="secondary" onClick={onBack} className="h-8 text-xs">Back</Button>
-             )}
-             <Button onClick={onNext} className="h-8 text-xs px-5 shadow-blue-200 shadow-md">
-               {isLast ? "Finish" : "Next"}
-             </Button>
-          </div>
-       </div>
-    </div>
-  );
-}
-
-// --- Business logic ---
-
-function effectiveWorkingWeeks(ptoDays: number, holidayDays: number, sickDays: number) {
-  const offDays = toNum(ptoDays, 0) + toNum(holidayDays, 0) + toNum(sickDays, 0);
-  const weeks = 52 - offDays / 5;
-  return clamp(weeks, 0, 52);
-}
-
-function solveAnnualW2Base({ allowTotalCost, annualHealth, loadRate }: { allowTotalCost: number; annualHealth: number; loadRate: number }) {
-  const denom = 1 + loadRate;
-  const nom = allowTotalCost - annualHealth;
-  if (denom <= 0 || nom <= 0) return 0;
-  return nom / denom;
-}
 
 // --- Main Component ---
 
 export default function ClinicianCompCalculator() {
-  // Inputs
-  const [grossRate, setGrossRate] = useState(150);
-  const [procFeePct, setProcFeePct] = useState(2);
-  const [useNetDirect, setUseNetDirect] = useState(true);
-  const [netRate, setNetRate] = useState(135.8);
+  // Inputs (Persisted)
+  const [grossRate, setGrossRate] = useStickyState("mtcs_grossRate", 150);
+  const [procFeePct, setProcFeePct] = useStickyState("mtcs_procFeePct", 2);
+  const [useNetDirect, setUseNetDirect] = useStickyState("mtcs_useNetDirect", true);
+  const [netRate, setNetRate] = useStickyState("mtcs_netRate", 110); 
 
-  const [sessionsPerWeek, setSessionsPerWeek] = useState(22);
-  const [ptoDays, setPtoDays] = useState(10);
-  const [holidayDays, setHolidayDays] = useState(8);
-  const [sickDays, setSickDays] = useState(0);
+  const [sessionsPerWeek, setSessionsPerWeek] = useStickyState("mtcs_sessionsPerWeek", 22);
+  const [totalTimeOffDays, setTotalTimeOffDays] = useStickyState("mtcs_totalTimeOffDays", 20);
 
-  const [rolePreset, setRolePreset] = useState<"pre" | "licensed">("licensed");
-  const [targetRatioPctRaw, setTargetRatioPctRaw] = useState(55);
-  const [sliderTouched, setSliderTouched] = useState(false);
+  const [rolePreset, setRolePreset] = useStickyState<"pre" | "licensed">("mtcs_rolePreset", "licensed");
+  
+  // Advanced Inputs
+  const [isAdvancedMode, setIsAdvancedMode] = useStickyState("mtcs_isAdvancedMode", false);
+  const [payrollLoadPct, setPayrollLoadPct] = useStickyState("mtcs_payrollLoadPct", 8.5); 
+  const [annualHealth, setAnnualHealth] = useStickyState("mtcs_annualHealth", 0); 
+  const [matchPct, setMatchPct] = useStickyState("mtcs_matchPct", 0);
+  
+  // Admin Time
+  const [adminHours, setAdminHours] = useStickyState("mtcs_adminHours", 0);
+  const [adminHourlyRate, setAdminHourlyRate] = useStickyState("mtcs_adminHourlyRate", 20);
 
-  const [payrollLoadPct, setPayrollLoadPct] = useState(10);
-  const [annualHealth, setAnnualHealth] = useState(6000);
-  const [matchPct, setMatchPct] = useState(0);
+  // Offer Builder State
+  const [offerSalary, setOfferSalary] = useStickyState("mtcs_offerSalary", 0);
+  const [offerHourly, setOfferHourly] = useStickyState("mtcs_offerHourly", 0);
+  const [offer1099, setOffer1099] = useStickyState("mtcs_offer1099", 0);
+  const [w2Mode, setW2Mode] = useStickyState<"salary" | "hourly">("mtcs_w2Mode", "salary");
 
-  const [lockPay, setLockPay] = useState(false);
-  const [payLockMode, setPayLockMode] = useState<"hourly" | "salary">("hourly");
-  const [lockedHourly, setLockedHourly] = useState(50);
-  const [lockedSalary, setLockedSalary] = useState(80000);
-
-  const [rateShockPct, setRateShockPct] = useState(0);
-  const [volumeShockPct, setVolumeShockPct] = useState(0);
+  const [rateShockPct, setRateShockPct] = useState(0); // Don't stick scenarios
+  const [volumeShockPct, setVolumeShockPct] = useState(0); // Don't stick scenarios
 
   // Estimator State
-  const [showEstimator, setShowEstimator] = useState(false);
-  const [incomeTaxRate, setIncomeTaxRate] = useState(22);
+  const [showEstimator, setShowEstimator] = useStickyState("mtcs_showEstimator", false);
+  const [incomeTaxRate, setIncomeTaxRate] = useStickyState("mtcs_incomeTaxRate", 22);
 
-  const [baseWeeks] = useState(52);
-  
-  // Tour State
+  // App State (Not Persisted)
   const [showTour, setShowTour] = useState(false);
-  const [tourStep, setTourStep] = useState(0); // 0 = Welcome, 1..3 = Steps
-  
-  // Tab State
+  const [tourStep, setTourStep] = useState(0);
+  const [showLeadModal, setShowLeadModal] = useState(false);
   const [activeTab, setActiveTab] = useState("inputs");
+  
+  // Gating State
+  const [hasAccess, setHasAccess] = useState(false);
+  const [showGateModal, setShowGateModal] = useState(false);
 
+  // 1. Check for Access Logic (URL Param or LocalStorage)
   useEffect(() => {
+    // Check URL first (return from JotForm)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("access") === "granted") {
+      setHasAccess(true);
+      try {
+        window.localStorage.setItem("mtcs_gate_access", "true");
+        // Clean URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } catch(e) {}
+    } else {
+      // Check storage
+      const stored = window.localStorage.getItem("mtcs_gate_access");
+      if (stored === "true") {
+        setHasAccess(true);
+      }
+    }
+
+    // Check for Tour
     try {
-      const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v3");
+      const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v5");
       if (!seen) {
         setShowTour(true);
       }
-    } catch (e) {
-      // ignore storage errors
+    } catch (e) {}
+
+    // Check for Share Link (Has priority over sticky state)
+    if (window.location.hash.startsWith('#s=')) {
+      try {
+        const decoded = decodeState(window.location.hash.substring(3));
+        if (decoded) {
+            // Bulk update state from URL
+            if(decoded.nr !== undefined) setNetRate(decoded.nr);
+            if(decoded.spw !== undefined) setSessionsPerWeek(decoded.spw);
+            if(decoded.off !== undefined) setTotalTimeOffDays(decoded.off);
+            if(decoded.role) setRolePreset(decoded.role as any);
+            if(decoded.ah !== undefined) setAdminHours(decoded.ah);
+            if(decoded.ar !== undefined) setAdminHourlyRate(decoded.ar);
+            if(decoded.os !== undefined) setOfferSalary(decoded.os);
+            if(decoded.oh !== undefined) setOfferHourly(decoded.oh);
+            if(decoded.ic !== undefined) setOffer1099(decoded.ic);
+        }
+      } catch(e) { console.error("Failed to decode state", e); }
     }
-  }, []);
+  }, []); // Only on mount
+
+  const handleTabChangeAttempt = (tab: string) => {
+    if (tab === "ranges" || tab === "summary") {
+       if (!hasAccess) {
+         setShowGateModal(true);
+         return;
+       }
+    }
+    setActiveTab(tab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  
+  const handleManualUnlock = () => {
+    setHasAccess(true);
+    setShowGateModal(false);
+    try {
+      window.localStorage.setItem("mtcs_gate_access", "true");
+    } catch(e) {}
+  };
 
   const handleStartTour = () => {
     setTourStep(1);
@@ -419,16 +229,10 @@ export default function ClinicianCompCalculator() {
         handleTourComplete();
         return;
     }
-    if (tourStep === 2) {
-      setActiveTab("summary");
-    }
     setTourStep(s => s + 1);
   };
 
   const handlePrevStep = () => {
-    if (tourStep === 3) {
-      setActiveTab("inputs");
-    }
     setTourStep(s => s - 1);
   };
 
@@ -436,11 +240,10 @@ export default function ClinicianCompCalculator() {
     setShowTour(false);
     setTourStep(0);
     setActiveTab("inputs");
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     try {
-      localStorage.setItem("mtcs_comp_calc_tour_seen_v3", "1");
-    } catch (e) {
-      // ignore
-    }
+      localStorage.setItem("mtcs_comp_calc_tour_seen_v5", "1");
+    } catch (e) {}
   };
 
   const handleCloseTour = () => {
@@ -448,8 +251,52 @@ export default function ClinicianCompCalculator() {
     setTourStep(0);
   };
 
-  const hardCeilPct = rolePreset === "pre" ? 50 : 60;
-  const setTargetRatioPct = (v: number) => setTargetRatioPctRaw(clamp(v, 0, hardCeilPct));
+  const applyPreset = (p: any) => {
+    setNetRate(p.netRate);
+    setSessionsPerWeek(p.sessionsPerWeek);
+    setRolePreset(p.rolePreset);
+    setUseNetDirect(true);
+    setAdminHours(0);
+  };
+
+  const handleLeadConvert = () => {
+     // Now handled inside the modal success state (clicking the CTA)
+  };
+  
+  const handleShare = () => {
+    import('./utils').then(({ encodeState }) => {
+        const state = {
+            nr: netRate,
+            spw: sessionsPerWeek,
+            off: totalTimeOffDays,
+            role: rolePreset,
+            ah: adminHours,
+            ar: adminHourlyRate,
+            os: offerSalary,
+            oh: offerHourly,
+            ic: offer1099
+        };
+        const hash = encodeState(state);
+        const url = `${window.location.origin}${window.location.pathname}#s=${hash}`;
+        navigator.clipboard.writeText(url).then(() => {
+            alert("Link copied to clipboard!");
+        });
+    });
+  };
+
+  // --- Logic ---
+  
+  // Band Logic (Industry Standard)
+  const band = useMemo(() => {
+     return rolePreset === "pre" 
+       ? { min: 40, max: 50, avg: 45 } 
+       : { min: 50, max: 60, avg: 55 };
+  }, [rolePreset]);
+  
+  const targetRatioPct = band.avg;
+
+  const hardCeilPct = band.max;
+  const hardCeil = hardCeilPct / 100;
 
   // Derived: rates & volume
   const netPerSessionBase = useMemo(() => {
@@ -469,9 +316,11 @@ export default function ClinicianCompCalculator() {
   );
 
   const workingWeeks = useMemo(
-    () => effectiveWorkingWeeks(ptoDays, holidayDays, sickDays),
-    [ptoDays, holidayDays, sickDays]
+    () => effectiveWorkingWeeks(totalTimeOffDays),
+    [totalTimeOffDays]
   );
+  const estWorkingDays = Math.max(0, 260 - toNum(totalTimeOffDays, 0));
+
   const annualSessions = useMemo(() => spw * workingWeeks, [spw, workingWeeks]);
   const annualCollections = useMemo(
     () => netPerSession * annualSessions,
@@ -479,94 +328,182 @@ export default function ClinicianCompCalculator() {
   );
   const billableHours = useMemo(() => annualSessions, [annualSessions]);
 
-  const presetGuide = useMemo(
-    () =>
-      rolePreset === "pre"
-        ? { band: [0.4, 0.5], label: "Pre-licensed: aim 40–50%" }
-        : { band: [0.5, 0.55], label: "Licensed: aim 50–55%" },
-    [rolePreset]
-  );
-
-  const targetRatioPct = clamp(toNum(targetRatioPctRaw, 55), 0, hardCeilPct);
-  const targetRatio = clamp(targetRatioPct / 100, 0.2, 0.8);
-  const hardCeil = clamp(hardCeilPct / 100, 0.2, 0.9);
-
   const payrollLoadRate = clamp(toNum(payrollLoadPct, 10) / 100, 0, 0.5);
   const matchRate = clamp(toNum(matchPct, 0) / 100, 0, 0.2);
   const loadRate = clamp(payrollLoadRate + matchRate, 0, 0.5);
 
-  const allowTotalCost = annualCollections * targetRatio;
+  // Admin Cost Calculation
+  const annualAdminGross = useMemo(() => {
+    return toNum(adminHours, 0) * toNum(adminHourlyRate, 0) * workingWeeks;
+  }, [adminHours, adminHourlyRate, workingWeeks]);
 
-  // W-2 solver + lock-pay
-  const annualW2BaseSolved = solveAnnualW2Base({
-    allowTotalCost,
-    annualHealth: toNum(annualHealth, 0),
-    loadRate,
-  });
-  const baseW2 = lockPay
-    ? payLockMode === "hourly"
-      ? billableHours > 0
-        ? toNum(lockedHourly, 0) * billableHours
-        : 0
-      : toNum(lockedSalary, 0)
-    : annualW2BaseSolved;
-
-  const hourlyW2 = billableHours > 0 ? baseW2 / billableHours : 0;
-  const salaryW2 = baseW2;
-
-  const payrollTaxAmt = baseW2 * payrollLoadRate;
-  const matchAmt = baseW2 * matchRate;
-  const totalCostW2 = baseW2 + payrollTaxAmt + matchAmt + toNum(annualHealth, 0);
-  const realizedW2Ratio = annualCollections > 0 ? totalCostW2 / annualCollections : 0;
-
-  // 1099
-  const icSplit = clamp(targetRatio, 0, hardCeil);
-  const icPayoutPerSession = netPerSession * icSplit;
-  const icTotalComp = icPayoutPerSession * annualSessions;
-
-  const exceedsCeil = realizedW2Ratio > hardCeil + 1e-6 || icSplit > hardCeil + 1e-6;
-  const benefitTooRich = !lockPay
-    ? allowTotalCost - toNum(annualHealth, 0) <= 0
-    : totalCostW2 > allowTotalCost + 1e-6;
-
-  // Target color helper
-  if (!sliderTouched) {
-    const auto = rolePreset === "pre" ? 45 : 55;
-    if (targetRatioPctRaw !== auto) setTargetRatioPct(auto);
+  // --- Range Logic Calculation ---
+  const calculateW2Sustainable = (ratioPct: number) => {
+    const totalBudget = annualCollections * (ratioPct / 100);
+    const adminCostToPractice = annualAdminGross * (1 + loadRate);
+    const availableForClinical = totalBudget - adminCostToPractice;
+    return solveAnnualW2Base({
+        allowTotalCost: availableForClinical,
+        annualHealth: toNum(annualHealth, 0),
+        loadRate
+    });
   }
-  const recUpper = rolePreset === "pre" ? 47 : 57;
-  const targetColor = targetRatioPct <= recUpper ? "bg-blue-600 text-white" : "bg-amber-500 text-white";
 
-  // --- Net Pay Estimation Logic ---
+  const calculate1099Sustainable = (ratioPct: number) => {
+    const totalBudget = annualCollections * (ratioPct / 100);
+    const availableForClinical = totalBudget - annualAdminGross;
+    const clinicalPayoutPerSession = annualSessions > 0 ? availableForClinical / annualSessions : 0;
+    return clinicalPayoutPerSession;
+  }
+
+  const rangeSalaryMin = calculateW2Sustainable(band.min);
+  const rangeSalaryMax = calculateW2Sustainable(band.max);
+  const rangeSalaryAvg = calculateW2Sustainable(band.avg);
+  
+  const rangeHourlyMin = billableHours > 0 ? rangeSalaryMin / billableHours : 0;
+  const rangeHourlyMax = billableHours > 0 ? rangeSalaryMax / billableHours : 0;
+  const rangeHourlyAvg = billableHours > 0 ? rangeSalaryAvg / billableHours : 0;
+
+  const range1099Min = calculate1099Sustainable(band.min);
+  const range1099Max = calculate1099Sustainable(band.max);
+  const range1099Avg = calculate1099Sustainable(band.avg);
+
+  // Auto-populate offers with the sustainable average when inputs drastically change
+  // Note: We use a ref or check if 0 to prevent overwriting user input constantly
+  // For simplicity here, we only set if 0 (initial)
+  useEffect(() => {
+    if (offerSalary === 0 && rangeSalaryAvg > 0) setOfferSalary(Math.round(rangeSalaryAvg));
+    if (offerHourly === 0 && rangeHourlyAvg > 0) setOfferHourly(Number(rangeHourlyAvg.toFixed(2)));
+    if (offer1099 === 0 && range1099Avg > 0) setOffer1099(Number(range1099Avg.toFixed(2)));
+  }, [rangeSalaryAvg, rangeHourlyAvg, range1099Avg]);
+
+  // --- Real-time Margin Checks for Ranges Tab ---
+  const checkW2Margin = (clinicalBase: number) => {
+    const w2AdminBase = annualAdminGross;
+    const w2TotalGross = clinicalBase + w2AdminBase;
+    const w2Tax = w2TotalGross * payrollLoadRate;
+    const w2MatchVal = w2TotalGross * matchRate;
+    const totalCost = w2TotalGross + w2Tax + w2MatchVal + toNum(annualHealth, 0);
+    const margin = annualCollections - totalCost;
+    return annualCollections > 0 ? margin / annualCollections : 0;
+  };
+
+  const check1099Margin = (sessionRate: number) => {
+    const icClinicalTotal = sessionRate * annualSessions;
+    const icAdminTotal = annualAdminGross;
+    const icTotalGross = icClinicalTotal + icAdminTotal;
+    const margin = annualCollections - icTotalGross;
+    return annualCollections > 0 ? margin / annualCollections : 0;
+  };
+
+
+  // --- Summary Tab Calculations (Using USER OFFERS) ---
+  
+  const w2ClinicalBase = w2Mode === 'salary' 
+      ? toNum(offerSalary, 0) 
+      : toNum(offerHourly, 0) * billableHours;
+
+  const w2AdminBase = annualAdminGross;
+  const w2TotalGross = w2ClinicalBase + w2AdminBase;
+  
+  const w2PayrollTax = w2TotalGross * payrollLoadRate;
+  const w2Match = w2TotalGross * matchRate; 
+  const w2Health = toNum(annualHealth, 0);
+  
+  const w2TotalCost = w2TotalGross + w2PayrollTax + w2Match + w2Health;
+  const marginW2 = annualCollections - w2TotalCost;
+  const marginW2Pct = annualCollections > 0 ? marginW2 / annualCollections : 0;
+
+  const icClinicalTotal = toNum(offer1099, 0) * annualSessions;
+  const icAdminTotal = annualAdminGross;
+  const icTotalGross = icClinicalTotal + icAdminTotal;
+  
+  const icTotalCost = icTotalGross; 
+  const marginIC = annualCollections - icTotalCost;
+  const marginICPct = annualCollections > 0 ? marginIC / annualCollections : 0;
+
+  // Estimator (Net Pay)
   const taxRate = clamp(incomeTaxRate, 0, 60) / 100;
   
-  // W-2 Net
-  // Deduct employee share of FICA (7.65%) + Income Tax
   const w2EmpFica = 0.0765; 
-  const w2GrossEst = baseW2;
-  const w2TaxesEst = w2GrossEst * (w2EmpFica + taxRate);
-  const w2NetEst = Math.max(0, w2GrossEst - w2TaxesEst);
+  const w2TaxesEst = w2TotalGross * (w2EmpFica + taxRate);
+  const w2NetEst = Math.max(0, w2TotalGross - w2TaxesEst);
 
-  // 1099 Net
-  // Deduct SE Tax (15.3% on ~92.35% of income) + Income Tax
-  // Deduct Private Health (Assuming user pays 'annualHealth' out of pocket)
   const seTaxRate = 0.153 * 0.9235; 
-  const icGrossEst = icTotalComp;
-  const icTaxesEst = icGrossEst * (seTaxRate + taxRate);
-  const icHealthCost = showEstimator ? toNum(annualHealth, 0) : 0;
-  const icNetEst = Math.max(0, icGrossEst - icTaxesEst - icHealthCost);
-
-  // Margins
-  const marginW2 = annualCollections - totalCostW2;
-  const marginIC = annualCollections - icTotalComp;
+  const icTaxesEst = icTotalGross * (seTaxRate + taxRate);
+  const icHealthCost = showEstimator ? toNum(annualHealth, 0) : 0; 
+  const icNetEst = Math.max(0, icTotalGross - icTaxesEst - icHealthCost);
+  
+  // -- Helper for Margin Styles --
+  const renderRangeCard = (
+      title: string, 
+      rangeStr: string, 
+      label: string, 
+      value: number | string, 
+      setValue: (v: number) => void,
+      min: number,
+      max: number,
+      step: number,
+      marginPct: number,
+      colorClass: string,
+      borderClass: string,
+      headerClass: string,
+      unit: string = ""
+  ) => {
+      const marginStatus = getMarginStatus(marginPct, rolePreset);
+      
+      return (
+        <div className={cn("bg-gradient-to-br p-6 rounded-2xl border shadow-sm flex flex-col items-center justify-between text-center space-y-4 relative overflow-hidden group hover:shadow-md transition-all", colorClass, borderClass)}>
+           <div className={cn("absolute top-0 w-full h-1", headerClass)}></div>
+           <div className={cn("text-xs uppercase font-bold tracking-widest", headerClass.replace('bg-', 'text-'))}>{title}</div>
+           
+           <div className="space-y-1">
+             <div className="text-3xl font-bold text-gray-900 tracking-tight">
+               {rangeStr} <span className="text-lg text-gray-400 font-normal">{unit}</span>
+             </div>
+             <div className="text-xs text-gray-500">Recommended Sustainable Range</div>
+           </div>
+           
+           <div className={cn("w-full p-4 rounded-xl shadow-inner transition-colors duration-300", marginStatus.containerClass)}>
+              <div className="flex justify-between items-center mb-3">
+                 <label className={cn("text-xs font-bold uppercase tracking-wide", marginStatus.valueColor)}>{label}</label>
+                 <span className="text-base font-bold text-gray-900">{typeof value === 'number' ? (unit === '/hr' ? fmtUSD2(value) : fmtUSD(value)) : value}{unit}</span>
+              </div>
+              <Slider 
+                value={[toNum(value, 0)]} 
+                min={min} 
+                max={max} 
+                step={step} 
+                onValueChange={(v: number[]) => setValue(v[0])} 
+              />
+              <div className="mt-3 flex items-center justify-between border-t border-gray-900/5 pt-2">
+                 <span className="text-xs text-gray-500 font-medium">Margin:</span>
+                 <div className="flex items-center gap-2">
+                     <span className={cn("text-3xl font-bold", marginStatus.valueColor)}>{fmtPct(marginPct)}</span>
+                     <span className={cn("text-[10px] uppercase font-bold px-1.5 py-0.5 rounded shadow-sm", marginStatus.badgeClass)}>
+                         {marginStatus.status}
+                     </span>
+                 </div>
+              </div>
+           </div>
+        </div>
+      );
+  };
 
   return (
-    <div className="w-full font-sans bg-gray-50 min-h-screen">
+    <div className="w-full font-sans bg-gray-50 min-h-screen pb-12">
       <style>{`
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
         input[type="range"]::-moz-range-thumb { height:18px; width:18px; border-radius:9999px; background:#2563eb; border:2px solid #fff; box-shadow:0 1px 2px rgba(0,0,0,.15); cursor: pointer; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes bounce-x {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(3px); }
+        }
+        .animate-bounce-x {
+          animation: bounce-x 1s infinite;
+        }
       `}</style>
       
       {/* Step 0: Welcome Modal */}
@@ -585,47 +522,78 @@ export default function ClinicianCompCalculator() {
         />
       )}
 
+      {/* Access Gate Modal */}
+      <AccessGateModal 
+        isOpen={showGateModal} 
+        onClose={() => setShowGateModal(false)} 
+        onUnlock={handleManualUnlock}
+      />
+
+      {/* Lead Capture Modal */}
+      <ReportCaptureModal isOpen={showLeadModal} onClose={() => setShowLeadModal(false)} onConvert={handleLeadConvert} />
+
       <Tabs 
         value={activeTab} 
-        onValueChange={setActiveTab} 
+        onValueChange={handleTabChangeAttempt}
         defaultValue="inputs" 
         className="w-full max-w-6xl mx-auto"
       >
         {/* Sticky Header Wrapper */}
         <div className="sticky top-0 z-40 bg-gray-50/95 backdrop-blur-md shadow-sm border-b border-gray-200 transition-all">
           <div className="px-4 py-3 sm:px-6 sm:py-4 max-w-6xl mx-auto space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-               <div className="flex items-center justify-between sm:justify-start gap-3">
-                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 leading-none">Comp Calculator</h1>
-                 <button 
-                   onClick={() => {
-                     setShowTour(true);
-                     setTourStep(0);
-                   }}
-                   className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                   title="Restart Tour"
-                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                    </svg>
-                 </button>
+            
+            {/* Header Top Row: Title + CTA */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+               {/* Title Area */}
+               <div className="flex items-center justify-between md:justify-start gap-3">
+                 <div className="flex items-center gap-2">
+                   <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900 leading-none">Comp Calculator</h1>
+                   <div className="flex gap-1">
+                     <button 
+                       onClick={() => {
+                         setShowTour(true);
+                         setTourStep(0);
+                       }}
+                       className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                       title="Restart Tour"
+                     >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="12" r="10"></circle>
+                          <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+                          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                     </button>
+                     <button 
+                       onClick={handleShare}
+                       className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                       title="Share Configuration"
+                     >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                     </button>
+                   </div>
+                 </div>
                </div>
-               {/* Stats Grid moved inside sticky header */}
-               <div className="flex overflow-x-auto pb-2 sm:pb-0 gap-2 w-full sm:w-auto sm:grid sm:grid-cols-4 snap-x no-scrollbar">
-                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Net / Session" value={fmtUSD(netPerSession)} /></div>
-                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Target" value={`${(targetRatio * 100).toFixed(1)}%`} /></div>
-                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Revenue" value={fmtUSD(annualCollections)} /></div>
-                 <div className="min-w-[140px] sm:min-w-0 snap-center"><BadgeStat label="Margin (W2)" value={fmtUSD(marginW2)} /></div>
+               
+               {/* CTA Banner Area */}
+               <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4 bg-blue-50/50 md:bg-transparent p-3 md:p-0 rounded-xl md:rounded-none border md:border-none border-blue-100 w-full md:w-auto">
+                   <span className="text-xs sm:text-sm font-medium text-gray-600 text-center md:text-right">
+                      Want help applying this to your practice?
+                   </span>
+                   <div className="hidden md:flex text-amber-500 animate-bounce-x">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                   </div>
+                   <a href={CTA_URL} target="_blank" rel="noopener noreferrer" className="w-full md:w-auto">
+                     <Button className="w-full md:w-auto bg-amber-600 hover:bg-amber-700 text-white border-transparent shadow-md shadow-amber-200 font-bold tracking-wide">
+                        Book Free Profit Audit
+                     </Button>
+                   </a>
                </div>
             </div>
             
-            <TabsList className="grid grid-cols-4 w-full">
+            <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger id="tab-trigger-inputs" value="inputs">Inputs</TabsTrigger>
-              <TabsTrigger id="tab-trigger-summary" value="summary">Summary</TabsTrigger>
-              <TabsTrigger value="w2">W‑2</TabsTrigger>
-              <TabsTrigger value="ic">1099</TabsTrigger>
+              <TabsTrigger id="tab-trigger-ranges" value="ranges" locked={!hasAccess}>Ranges</TabsTrigger>
+              <TabsTrigger id="tab-trigger-summary" value="summary" locked={!hasAccess}>Summary</TabsTrigger>
             </TabsList>
           </div>
         </div>
@@ -634,8 +602,14 @@ export default function ClinicianCompCalculator() {
           {/* Inputs */}
           <TabsContent value="inputs" className="space-y-6">
             
+            {/* Quick Start Presets */}
+            <div className="space-y-2">
+              <Label className="text-xs uppercase text-gray-500 tracking-wider">Quick Start Presets</Label>
+              <ScenarioPresets onSelect={applyPreset} />
+            </div>
+
             <Card>
-              <CardContent className="grid lg:grid-cols-2 gap-8">
+              <CardContent className="grid lg:grid-cols-2 gap-8 relative">
                 <div className="space-y-5">
                   <div className="space-y-4">
                      <RowSwitch
@@ -644,7 +618,7 @@ export default function ClinicianCompCalculator() {
                       onChange={setUseNetDirect}
                       tooltip="Toggle on if you know your average collected amount per session. Toggle off to calculate it from a gross rate minus fee percentages."
                     />
-                    <p className="text-xs text-gray-600">Toggle on to input your net collections per session directly. Toggle off to calculate from gross payout and fees.</p>
+                    <p className="text-xs text-gray-600 hidden sm:block">Toggle on to input your net collections per session directly. Toggle off to calculate from gross payout and fees.</p>
                   </div>
 
                   {useNetDirect ? (
@@ -669,151 +643,195 @@ export default function ClinicianCompCalculator() {
                     </div>
                   )}
 
+                  {/* Sessions & Working Days in one row for better mobile usage */}
                   <div className="grid grid-cols-2 gap-4">
                     <Field label="Sessions/wk" tooltip="Average number of billable client sessions held per week.">
                       <NumberInput value={sessionsPerWeek} onChange={setSessionsPerWeek} />
                     </Field>
-                    <Field label="Weeks/yr" tooltip="Total weeks in a year.">
-                      <Input value={String(baseWeeks)} readOnly disabled aria-disabled="true" />
+                    <Field label="Est. Working Days/yr" tooltip="Billable days per year (260 weekdays minus time off).">
+                      <Input value={String(estWorkingDays)} readOnly disabled className="bg-gray-50 text-gray-500 font-semibold border-gray-200 cursor-not-allowed" />
                     </Field>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2">
-                    <Field label="PTO" tooltip="Number of paid vacation days per year.">
-                      <NumberInput value={ptoDays} onChange={setPtoDays} />
-                    </Field>
-                    <Field label="Holidays" tooltip="Number of paid holidays observed per year.">
-                      <NumberInput value={holidayDays} onChange={setHolidayDays} />
-                    </Field>
-                    <Field label="Sick" tooltip="Number of paid sick days allocated per year.">
-                      <NumberInput value={sickDays} onChange={setSickDays} />
-                    </Field>
-                  </div>
+                  {/* Time Off on its own line */}
+                  <Field label="Days off (PTO, Holidays, Sick days)" tooltip="Combined PTO, Holidays, and Sick days per year.">
+                     <NumberInput value={totalTimeOffDays} onChange={setTotalTimeOffDays} />
+                  </Field>
 
-                  <Field label="Role preset" tooltip="Sets recommended compensation targets based on licensure status.">
-                    <select
-                      className="w-full h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                      value={rolePreset}
-                      onChange={(e) => setRolePreset(e.target.value as any)}
-                    >
-                      <option value="pre">Pre‑licensed</option>
-                      <option value="licensed">Licensed</option>
-                    </select>
+                  <Field label="Clinician Role" tooltip="Sets recommended compensation budget targets based on licensure status.">
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setRolePreset("pre")}
+                        className={cn(
+                          "p-3 rounded-xl border text-left transition-all relative",
+                          rolePreset === "pre"
+                            ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600 shadow-sm"
+                            : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
+                        )}
+                      >
+                        <div className={cn("font-bold text-sm", rolePreset === "pre" ? "text-blue-900" : "text-gray-900")}>Pre-Licensed</div>
+                        <div className="text-[10px] text-gray-500 mt-1 font-medium">Aim 40–50% of Rev</div>
+                        {rolePreset === "pre" && <div className="absolute top-2 right-2 w-2 h-2 bg-blue-600 rounded-full" />}
+                      </button>
+                      <button
+                        onClick={() => setRolePreset("licensed")}
+                        className={cn(
+                          "p-3 rounded-xl border text-left transition-all relative",
+                          rolePreset === "licensed"
+                            ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600 shadow-sm"
+                            : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
+                        )}
+                      >
+                        <div className={cn("font-bold text-sm", rolePreset === "licensed" ? "text-blue-900" : "text-gray-900")}>Licensed</div>
+                        <div className="text-[10px] text-gray-500 mt-1 font-medium">Aim 50–60% of Rev</div>
+                        {rolePreset === "licensed" && <div className="absolute top-2 right-2 w-2 h-2 bg-blue-600 rounded-full" />}
+                      </button>
+                    </div>
                   </Field>
                 </div>
 
                 <div className="space-y-6">
                   
-                  {/* Slider Section Container ID for Tour Targeting */}
-                  <div id="target-slider-container" className="p-2 -m-2 rounded-xl">
-                    <div className="flex items-center mb-2">
-                      <Label>Total clinician cost target (% of collections)</Label>
-                      <Tooltip content="The percentage of revenue allocated to the clinician's total compensation package (salary + benefits + taxes).">
-                        <InfoIcon className="ml-2" />
-                      </Tooltip>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-full">
-                        <Slider
-                          value={[targetRatioPct]}
-                          min={30}
-                          max={hardCeilPct}
-                          step={1}
-                          onValueChange={(v: number[]) => {
-                            setTargetRatioPct(v[0]);
-                            setSliderTouched(true);
-                          }}
-                        />
-                      </div>
-                      <div className={cn("w-24 text-center font-semibold rounded-lg px-2 py-1", targetColor)}>
-                        {targetRatioPct}%
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-700 mt-1">
-                      {presetGuide.label}. Blue = within recommended band; Yellow = approaching ceiling ({hardCeilPct}%).
-                    </p>
+                  {/* Simple/Advanced Toggle */}
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-sm font-medium text-gray-500">Advanced Settings (Taxes, Admin, Benefits)</span>
+                    <Switch checked={isAdvancedMode} onCheckedChange={setIsAdvancedMode} />
                   </div>
 
-                  <AccordionLike title="Taxes & Benefits">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <Field label="Employer payroll tax" tooltip="Estimated employer-side payroll taxes (e.g., FICA, FUTA, SUTA).">
-                        <PercentInput value={payrollLoadPct} onChange={setPayrollLoadPct} />
-                      </Field>
-                      <Field label="401(k) match" tooltip="Percentage of salary the employer matches for retirement.">
-                        <PercentInput value={matchPct} onChange={setMatchPct} />
-                      </Field>
-                      <Field label="Health (annual)" tooltip="Annual employer contribution towards health insurance premiums. Also used as the estimated cost for private insurance in the 1099 model.">
-                        <CurrencyInput value={annualHealth} onChange={setAnnualHealth} />
-                      </Field>
-                    </div>
-                  </AccordionLike>
-
-                  <div className="rounded-xl border border-gray-200 p-4 bg-gray-50 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center">
-                         <Label className="mr-2">Lock pay (W‑2)</Label>
-                         <Tooltip content="Fix the salary or hourly rate to see how changing benefits affects the realized margin.">
-                            <InfoIcon />
-                         </Tooltip>
-                      </div>
-                      <Switch checked={lockPay} onCheckedChange={setLockPay} />
-                    </div>
-                    {lockPay && (
-                      <div className="space-y-3">
-                        <div className="flex gap-2">
-                          <Button
-                            className="flex-1"
-                            variant={payLockMode === "hourly" ? "primary" : "secondary"}
-                            onClick={() => setPayLockMode("hourly")}
-                          >
-                            Hourly
-                          </Button>
-                          <Button
-                            className="flex-1"
-                            variant={payLockMode === "salary" ? "primary" : "secondary"}
-                            onClick={() => setPayLockMode("salary")}
-                          >
-                            Annual
-                          </Button>
+                  {isAdvancedMode && (
+                    <div className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-300">
+                      
+                      {/* Admin Time Section */}
+                       <div className="rounded-xl border border-gray-200 p-4 bg-gray-50 space-y-3">
+                        <Label>Administrative Time (Non-Clinical)</Label>
+                        <div className="grid grid-cols-2 gap-4">
+                           <Field label="Admin Hours/wk" tooltip="Hours per week paid for admin/meetings.">
+                             <NumberInput value={adminHours} onChange={setAdminHours} min={0} />
+                           </Field>
+                           <Field label="Admin Rate ($/hr)" tooltip="Hourly rate for administrative work.">
+                             <CurrencyInput value={adminHourlyRate} onChange={setAdminHourlyRate} min={0} />
+                           </Field>
                         </div>
-                        {payLockMode === "hourly" ? (
-                          <Field label="Locked hourly wage" tooltip="Fixed hourly rate.">
-                            <CurrencyInput value={lockedHourly} onChange={setLockedHourly} />
-                          </Field>
-                        ) : (
-                          <Field label="Locked annual salary" tooltip="Fixed annual base salary.">
-                            <CurrencyInput value={lockedSalary} onChange={setLockedSalary} />
-                          </Field>
-                        )}
-                        <p className="text-xs text-gray-700">
-                          When locked, wages are fixed. Adding benefits will change the realized % and may exceed the target.
+                        <p className="text-xs text-gray-500">
+                           Annual Admin Cost: {fmtUSD(annualAdminGross)}. This cost is deducted from the budget before calculating the sustainable clinical rate.
                         </p>
                       </div>
-                    )}
-                  </div>
 
-                  <AccordionLike title="Advanced (derived values & what‑ifs)">
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <BadgeStat label="Net / session" value={fmtUSD(netPerSession)} />
-                        <BadgeStat label="Annual sessions" value={annualSessions.toLocaleString()} />
-                        <BadgeStat
-                          label="Annual collections"
-                          value={<span className="break-words">{fmtUSD(annualCollections)}</span>}
-                        />
-                        <BadgeStat label="Effective working weeks" value={workingWeeks.toFixed(2)} />
-                      </div>
-                      <div className="space-y-4">
-                        <Field label="What‑if: rate shock" tooltip="Simulate a percentage increase or decrease in reimbursement rates.">
-                          <PercentSlider value={rateShockPct} onChange={setRateShockPct} min={-20} max={20} />
-                        </Field>
-                        <Field label="What‑if: volume shock" tooltip="Simulate a percentage increase or decrease in patient volume.">
-                          <PercentSlider value={volumeShockPct} onChange={setVolumeShockPct} min={-30} max={30} />
-                        </Field>
-                      </div>
+                      <AccordionLike title="Taxes & Benefits">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <Field label="Employer payroll tax" tooltip="Estimated employer-side payroll taxes (e.g., FICA, FUTA, SUTA).">
+                            <PercentInput value={payrollLoadPct} onChange={setPayrollLoadPct} />
+                          </Field>
+                          <Field label="401(k) match" tooltip="Percentage of salary the employer matches for retirement.">
+                            <PercentInput value={matchPct} onChange={setMatchPct} />
+                          </Field>
+                          <Field label="Employer Health (annual)" tooltip="Annual employer contribution towards health insurance premiums. Also used as the estimated cost for private insurance in the 1099 model.">
+                            <CurrencyInput value={annualHealth} onChange={setAnnualHealth} />
+                          </Field>
+                        </div>
+                      </AccordionLike>
+
+                      <AccordionLike title="What-if Scenarios">
+                        <div className="space-y-4">
+                            <Field label="Rate shock" tooltip="Simulate a percentage increase or decrease in reimbursement rates.">
+                              <PercentSlider value={rateShockPct} onChange={setRateShockPct} min={-20} max={20} />
+                            </Field>
+                            <Field label="Volume shock" tooltip="Simulate a percentage increase or decrease in patient volume.">
+                              <PercentSlider value={volumeShockPct} onChange={setVolumeShockPct} min={-30} max={30} />
+                            </Field>
+                        </div>
+                      </AccordionLike>
                     </div>
-                  </AccordionLike>
+                  )}
                 </div>
+              </CardContent>
+            </Card>
+            
+            {/* Mobile Nav Button */}
+            <div className="flex justify-end pt-4">
+               <Button onClick={() => handleTabChangeAttempt('ranges')} className="w-full sm:w-auto h-12 text-base shadow-lg shadow-blue-100/50">
+                 Continue to Ranges →
+               </Button>
+            </div>
+          </TabsContent>
+          
+          {/* New Ranges Tab */}
+          <TabsContent value="ranges">
+            <Card>
+              <CardContent className="space-y-6 py-8 sm:py-12">
+                 <div className="text-center space-y-2 max-w-2xl mx-auto">
+                    <h2 className="text-2xl font-bold text-gray-900">Sustainable Compensation Ranges</h2>
+                    <p className="text-gray-600">
+                       Based on your inputs, these are the recommended sustainable offers. <br/>
+                       <span className="text-sm font-semibold text-blue-700">Use the sliders below to check profitability.</span>
+                    </p>
+                    {annualAdminGross > 0 && (
+                      <div className="inline-block bg-yellow-50 text-yellow-800 text-xs px-3 py-1 rounded-full border border-yellow-200 mt-2">
+                        Includes {fmtUSD(annualAdminGross)}/yr for Admin Time
+                      </div>
+                    )}
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-6">
+                    {renderRangeCard(
+                      "W-2 Salary", 
+                      `${fmtUSD(rangeSalaryMin)} – ${fmtUSD(rangeSalaryMax)}`, 
+                      "Your Offer (Annual)", 
+                      offerSalary, 
+                      setOfferSalary,
+                      Math.max(0, Math.floor(rangeSalaryMin * 0.5)),
+                      Math.max(1000, Math.ceil(rangeSalaryMax * 1.5)),
+                      500,
+                      checkW2Margin(toNum(offerSalary, 0)),
+                      "from-blue-50 to-white",
+                      "border-blue-100",
+                      "bg-blue-500"
+                    )}
+
+                    {renderRangeCard(
+                      "W-2 Hourly", 
+                      `${rangeHourlyMin.toFixed(0)} – ${rangeHourlyMax.toFixed(0)}`, 
+                      "Your Offer (Hourly)", 
+                      offerHourly, 
+                      setOfferHourly,
+                      Math.max(0, Math.floor(rangeHourlyMin * 0.5)),
+                      Math.max(10, Math.ceil(rangeHourlyMax * 1.5)),
+                      0.5,
+                      checkW2Margin(toNum(offerHourly, 0) * billableHours),
+                      "from-blue-50 to-white",
+                      "border-blue-100",
+                      "bg-blue-500",
+                      "/hr"
+                    )}
+
+                    {renderRangeCard(
+                      "1099 Rate", 
+                      `${fmtUSD(range1099Min)} – ${fmtUSD(range1099Max)}`, 
+                      "Your Offer (Session)", 
+                      offer1099, 
+                      setOffer1099,
+                      Math.max(0, Math.floor(range1099Min * 0.5)),
+                      Math.max(10, Math.ceil(range1099Max * 1.5)),
+                      1,
+                      check1099Margin(toNum(offer1099, 0)),
+                      "from-purple-50 to-white md:col-span-2 lg:col-span-1",
+                      "border-purple-100",
+                      "bg-purple-500",
+                      "/ses"
+                    )}
+                 </div>
+                 
+                 <div className="bg-blue-50 rounded-xl p-4 mt-8 flex flex-col sm:flex-row items-center justify-between gap-4 border border-blue-100">
+                    <div className="flex items-start gap-3">
+                       <InfoIcon className="text-blue-600 mt-0.5" />
+                       <div className="text-sm text-blue-900">
+                          <span className="font-bold">Next Steps:</span> Use sliders to adjust your offer. The background color will indicate if it's healthy. Then check the Summary tab to see the final breakdown.
+                       </div>
+                    </div>
+                    <Button onClick={() => handleTabChangeAttempt('summary')} variant="secondary" className="whitespace-nowrap w-full sm:w-auto">
+                       Compare & Finalize →
+                    </Button>
+                 </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -823,42 +841,82 @@ export default function ClinicianCompCalculator() {
             <Card>
               <CardContent className="space-y-6">
                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
-                    <h2 className="text-lg font-bold text-gray-900">Side-by-Side Comparison</h2>
-                    <div className="flex flex-col sm:flex-row gap-4 bg-gray-50 p-2 rounded-lg">
-                      <RowSwitch 
-                        label="Estimate Net Take-Home Pay" 
-                        checked={showEstimator} 
-                        onChange={setShowEstimator}
-                        tooltip="Deduct estimated taxes and private health insurance to approximate actual cash in pocket."
-                      />
-                      {showEstimator && (
-                        <div className="w-full sm:w-32">
-                           <Field label="Est. Tax Rate" tooltip="Combined Federal + State income tax estimate (excluding FICA/SE tax).">
-                             <PercentInput value={incomeTaxRate} onChange={setIncomeTaxRate} />
-                           </Field>
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-900">Comparison of Your Offers</h2>
+                        <p className="text-xs text-gray-500 mt-1">Comparing your specific W-2 and 1099 offers entered in the Ranges tab.</p>
+                    </div>
+                    <div className="flex flex-col sm:items-end gap-3 w-full sm:w-auto">
+                        {/* W-2 Mode Toggle */}
+                        <div className="flex items-center self-end bg-gray-100 p-1 rounded-lg">
+                           <button 
+                              onClick={() => setW2Mode('salary')}
+                              className={cn("px-3 py-1.5 text-xs font-bold rounded-md transition-all", w2Mode === 'salary' ? "bg-white shadow text-blue-600" : "text-gray-500 hover:text-gray-700")}
+                           >
+                             Salary View
+                           </button>
+                           <button 
+                              onClick={() => setW2Mode('hourly')}
+                              className={cn("px-3 py-1.5 text-xs font-bold rounded-md transition-all", w2Mode === 'hourly' ? "bg-white shadow text-blue-600" : "text-gray-500 hover:text-gray-700")}
+                           >
+                             Hourly View
+                           </button>
                         </div>
-                      )}
+                        
+                        {/* Net Pay Group */}
+                        <div className={cn("flex flex-col gap-2 p-2 rounded-lg border transition-colors self-end w-full sm:w-auto", showEstimator ? "bg-blue-50 border-blue-100" : "bg-transparent border-transparent")}>
+                            <div className="flex items-center justify-end gap-2">
+                                <Label className="text-xs text-gray-600 cursor-pointer" onClick={() => setShowEstimator(!showEstimator)}>Estimate Net Pay?</Label>
+                                <Switch checked={showEstimator} onCheckedChange={setShowEstimator} />
+                            </div>
+                            
+                            {showEstimator && (
+                                <div className="flex items-center justify-end gap-2 animate-in fade-in slide-in-from-top-1">
+                                    <span className="text-xs text-gray-500 whitespace-nowrap">Est. Tax Rate:</span>
+                                     <div className="w-20">
+                                        <PercentInput 
+                                            value={incomeTaxRate} 
+                                            onChange={setIncomeTaxRate} 
+                                            className="h-8 text-right bg-white" 
+                                        />
+                                     </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                  </div>
 
                  <div className="grid grid-cols-3 gap-4 border-b border-gray-200 pb-2 text-sm font-bold text-gray-500 uppercase tracking-wide">
                     <div>Metric</div>
-                    <div className="text-right text-blue-700">W-2 Model</div>
-                    <div className="text-right text-purple-700">1099 Model</div>
+                    <div className="text-right text-blue-700">W-2 ({w2Mode === 'salary' ? 'Salary' : 'Hourly'})</div>
+                    <div className="text-right text-purple-700">1099 (Per Session)</div>
                  </div>
 
                  <div className="space-y-4 text-sm">
                     {/* Gross Pay */}
                     <div className="grid grid-cols-3 gap-4 items-center">
                        <div className="font-medium text-gray-900">Gross Clinician Income</div>
-                       <div className="text-right font-semibold">{fmtUSD(w2GrossEst)}</div>
-                       <div className="text-right font-semibold">{fmtUSD(icGrossEst)}</div>
+                       <div className="text-right font-semibold">{fmtUSD(w2TotalGross)}</div>
+                       <div className="text-right font-semibold">{fmtUSD(icTotalGross)}</div>
                     </div>
+                    
+                    {/* Income Breakdown */}
+                    <div className="grid grid-cols-3 gap-4 items-center text-xs text-gray-500">
+                       <div className="pl-3 border-l-2 border-gray-100">↳ Clinical Pay</div>
+                       <div className="text-right">{fmtUSD(w2ClinicalBase)}</div>
+                       <div className="text-right">{fmtUSD(icClinicalTotal)}</div>
+                    </div>
+                    {annualAdminGross > 0 && (
+                      <div className="grid grid-cols-3 gap-4 items-center text-xs text-gray-500">
+                         <div className="pl-3 border-l-2 border-gray-100">↳ Admin Pay</div>
+                         <div className="text-right">{fmtUSD(w2AdminBase)}</div>
+                         <div className="text-right">{fmtUSD(icAdminTotal)}</div>
+                      </div>
+                    )}
 
                     {/* Estimator Rows */}
                     {showEstimator && (
                       <>
-                        <div className="grid grid-cols-3 gap-4 items-center text-red-600">
+                        <div className="grid grid-cols-3 gap-4 items-center text-red-600 mt-2">
                           <div>
                             <div className="font-medium">− Est. Taxes</div>
                             <div className="text-[10px] text-gray-500">
@@ -888,23 +946,72 @@ export default function ClinicianCompCalculator() {
                       </>
                     )}
 
-                    {/* Benefits Value (if not estimator) */}
+                    {/* Employer Cost Breakdown (if not estimator) */}
                     {!showEstimator && (
-                       <div className="grid grid-cols-3 gap-4 items-center text-green-600">
-                          <div>
-                             <div className="font-medium">+ Benefits Value</div>
-                             <div className="text-[10px] text-gray-500">Health + 401k Match</div>
-                          </div>
-                          <div className="text-right font-semibold">+ {fmtUSD(toNum(annualHealth,0) + matchAmt)}</div>
-                          <div className="text-right text-gray-400">0</div>
-                       </div>
+                       <>
+                         {/* Health */}
+                         {toNum(annualHealth, 0) > 0 && (
+                           <div className="grid grid-cols-3 gap-4 items-center text-green-600">
+                              <div>
+                                 <div className="font-medium">+ Health Ins.</div>
+                              </div>
+                              <div className="text-right">+ {fmtUSD(toNum(annualHealth,0))}</div>
+                              <div className="text-right text-gray-300">-</div>
+                           </div>
+                         )}
+                         
+                         {/* Match */}
+                         {w2Match > 0 && (
+                           <div className="grid grid-cols-3 gap-4 items-center text-green-600">
+                              <div>
+                                 <div className="font-medium">+ 401k Match</div>
+                              </div>
+                              <div className="text-right">+ {fmtUSD(w2Match)}</div>
+                              <div className="text-right text-gray-300">-</div>
+                           </div>
+                         )}
+
+                         {/* Taxes */}
+                         <div className="grid grid-cols-3 gap-4 items-center text-green-600">
+                              <div>
+                                 <div className="font-medium">+ Payroll Tax</div>
+                              </div>
+                              <div className="text-right">+ {fmtUSD(w2PayrollTax)}</div>
+                              <div className="text-right text-gray-300">-</div>
+                           </div>
+
+                         <div className="grid grid-cols-3 gap-4 items-center border-t border-gray-100 pt-2 font-semibold">
+                            <div>Total Employer Cost</div>
+                            <div className="text-right text-gray-900">{fmtUSD(w2TotalCost)}</div>
+                            <div className="text-right text-gray-900">{fmtUSD(icTotalCost)}</div>
+                         </div>
+                       </>
                     )}
 
-                    <div className="grid grid-cols-3 gap-4 items-center border-t border-gray-100 pt-3">
+                    <div className="grid grid-cols-3 gap-4 items-center border-t border-gray-200 pt-3">
                        <div className="font-medium text-gray-900">Practice Margin</div>
-                       <div className="text-right font-medium text-gray-600">{fmtUSD(marginW2)}</div>
-                       <div className="text-right font-medium text-gray-600">{fmtUSD(marginIC)}</div>
+                       <div className="text-right font-medium text-gray-600 flex flex-col items-end gap-1">
+                          {fmtUSD(marginW2)}
+                          <MarginBadge pct={marginW2Pct} rolePreset={rolePreset} />
+                       </div>
+                       <div className="text-right font-medium text-gray-600 flex flex-col items-end gap-1">
+                          {fmtUSD(marginIC)}
+                          <MarginBadge pct={marginICPct} rolePreset={rolePreset} />
+                       </div>
                     </div>
+                 </div>
+
+                 {/* CTA Banner */}
+                 <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <h3 className="text-sm font-bold text-blue-900">Have questions about how to setup compensation for your practice?</h3>
+                      <p className="text-xs text-blue-700 leading-relaxed mt-1">Or do you want to take your comp plan to the next level by adding in tiers or bonus? Schedule a call with us today.</p>
+                    </div>
+                    <a href={CTA_URL} target="_blank" rel="noopener noreferrer">
+                      <Button className="w-full sm:w-auto shadow-sm whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white border-transparent">
+                        Book Strategy Call
+                      </Button>
+                    </a>
                  </div>
               </CardContent>
             </Card>
@@ -918,8 +1025,8 @@ export default function ClinicianCompCalculator() {
                        <DistributionBar 
                          total={annualCollections}
                          segments={[
-                           { label: "Wages", value: baseW2, color: "bg-blue-600" },
-                           { label: "Benefits/Tax", value: totalCostW2 - baseW2, color: "bg-blue-300" },
+                           { label: "Wages", value: w2TotalGross, color: "bg-blue-600" },
+                           { label: "Benefits/Tax", value: w2TotalCost - w2TotalGross, color: "bg-blue-300" },
                            { label: "Practice Margin", value: marginW2, color: "bg-gray-300" },
                          ]} 
                        />
@@ -937,7 +1044,7 @@ export default function ClinicianCompCalculator() {
                        <DistributionBar 
                          total={annualCollections}
                          segments={[
-                           { label: "Clinician Pay", value: icTotalComp, color: "bg-purple-600" },
+                           { label: "Clinician Pay", value: icTotalGross, color: "bg-purple-600" },
                            { label: "Practice Margin", value: marginIC, color: "bg-gray-300" },
                          ]} 
                        />
@@ -949,136 +1056,16 @@ export default function ClinicianCompCalculator() {
                </Card>
             </div>
           </TabsContent>
-
-          {/* W-2 */}
-          <TabsContent value="w2">
-            <div className="grid md:grid-cols-3 gap-6">
-              <Card className="md:col-span-2">
-                <CardContent className="space-y-4">
-                  <h2 className="text-lg font-bold text-gray-900">W‑2 Compensation</h2>
-                  {benefitTooRich && (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 text-amber-900 text-sm p-3">
-                      {lockPay
-                        ? "With locked pay, current wages + benefits exceed the selected target %. Adjust target or reduce benefits."
-                        : "Benefits exceed the available cost pool at the selected target. Reduce benefits, raise the target %, or increase session economics."}
-                    </div>
-                  )}
-                  {exceedsCeil && (
-                    <div className="rounded-md border border-red-300 bg-red-50 text-red-900 text-sm p-3">
-                      Resulting cost exceeds the hard ceiling. Adjust inputs to keep ≤ {fmtPct(hardCeil)}.
-                    </div>
-                  )}
-
-                  <div className="grid sm:grid-cols-3 gap-4">
-                    <MetricBox
-                      label="Hourly wage"
-                      value={fmtUSD(hourlyW2)}
-                      sub={`at ${billableHours.toLocaleString()} billable hours/yr`}
-                      copyable={`${hourlyW2.toFixed(2)}`}
-                    />
-                    <MetricBox
-                      label="Annual salary"
-                      value={fmtUSD(salaryW2)}
-                      sub="base wages (excludes tax & benefits)"
-                      copyable={`${salaryW2.toFixed(0)}`}
-                    />
-                    <MetricBox label="Total employer cost" value={fmtUSD(totalCostW2)} sub="wages + tax + benefits" />
-                  </div>
-
-                  <div className="grid sm:grid-cols-3 gap-4">
-                    <MetricBox label="Target ratio" value={fmtPct(targetRatio)} sub="desired total cost / collections" />
-                    <MetricBox label="Realized ratio" value={fmtPct(realizedW2Ratio)} sub="actual with tax & benefits" />
-                    <MetricBox
-                      label="Ceiling"
-                      value={fmtPct(hardCeil)}
-                      sub={rolePreset === "pre" ? "pre‑licensed max" : "licensed max"}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-semibold text-gray-900">Composition of total employer cost</div>
-                    <div className="w-full h-4 rounded-full bg-gray-200 overflow-hidden flex">
-                      <div
-                        title={`Wages ${fmtUSD2(baseW2)}`}
-                        style={{ width: `${totalCostW2 > 0 ? (baseW2 / totalCostW2) * 100 : 0}%` }}
-                        className="h-full bg-blue-700"
-                      />
-                      <div
-                        title={`Payroll tax ${fmtUSD2(payrollTaxAmt)}`}
-                        style={{ width: `${totalCostW2 > 0 ? (payrollTaxAmt / totalCostW2) * 100 : 0}%` }}
-                        className="h-full bg-blue-400"
-                      />
-                      <div
-                        title={`401(k) match ${fmtUSD2(matchAmt)}`}
-                        style={{ width: `${totalCostW2 > 0 ? (matchAmt / totalCostW2) * 100 : 0}%` }}
-                        className="h-full bg-blue-300"
-                      />
-                      <div
-                        title={`Employer health ${fmtUSD2(annualHealth as any)}`}
-                        style={{ width: `${totalCostW2 > 0 ? (toNum(annualHealth, 0) / totalCostW2) * 100 : 0}%` }}
-                        className="h-full bg-blue-200"
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-gray-800">
-                      <LegendSwatch color="bg-blue-700" label="Wages" />
-                      <LegendSwatch color="bg-blue-400" label="Payroll tax" />
-                      <LegendSwatch color="bg-blue-300" label="401(k) match" />
-                      <LegendSwatch color="bg-blue-200" label="Employer health" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="space-y-3">
-                  <h3 className="font-semibold text-gray-900">Notes</h3>
-                  <ul className="text-sm list-disc pl-5 space-y-1 text-gray-800">
-                    <li>Lock pay fixes hourly or salary and shows how benefits change the realized %.</li>
-                    <li>Total employer cost = wages + payroll tax + 401(k) match + employer health.</li>
-                    <li>Pre‑licensed ceiling 50%; Licensed ceiling 60%.</li>
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* 1099 */}
-          <TabsContent value="ic">
-            <div className="grid md:grid-cols-3 gap-6">
-              <Card className="md:col-span-2">
-                <CardContent className="space-y-4">
-                  <h2 className="text-lg font-bold text-gray-900">1099 Compensation</h2>
-                  {icSplit > hardCeil && (
-                    <div className="rounded-md border border-red-300 bg-red-50 text-red-900 text-sm p-3">
-                      Proposed split exceeds the hard ceiling of {fmtPct(hardCeil)}.
-                    </div>
-                  )}
-                  <div className="grid sm:grid-cols-3 gap-4">
-                    <MetricBox label="Split of net" value={fmtPct(icSplit)} sub="paid on net per session" />
-                    <MetricBox
-                      label="Payout per session"
-                      value={fmtUSD(icPayoutPerSession)}
-                      sub={`net ${fmtUSD(netPerSession)}`}
-                    />
-                    <MetricBox label="Target ratio" value={fmtPct(targetRatio)} sub="mirrors total cost target" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="space-y-3">
-                  <h3 className="font-semibold text-gray-900">Notes</h3>
-                  <p className="text-sm text-gray-700">
-                    1099 model pays a share of net collections per session. Employer taxes, benefits, and health costs are not
-                    borne by the practice in this model, so the clinician is responsible for their own tax and benefits
-                    structure.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
         </div>
       </Tabs>
+      
+      {/* Footer Disclaimer */}
+      <footer className="max-w-6xl mx-auto px-6 py-8 text-center">
+        <p className="text-xs text-gray-400 leading-relaxed">
+          Disclaimer: These calculations are estimates for educational purposes only and do not constitute professional financial, tax, or legal advice. 
+          Please consult with a qualified professional before making business decisions.
+        </p>
+      </footer>
     </div>
   );
 }

@@ -29,3 +29,21 @@ export const downloadJSON = (obj: any, name = "comp_model.json") => {
   a.click();
   URL.revokeObjectURL(url);
 };
+
+export const encodeState = (state: any) => {
+  try {
+    return btoa(JSON.stringify(state));
+  } catch (e) {
+    console.warn("Failed to encode state", e);
+    return "";
+  }
+};
+
+export const decodeState = (str: string) => {
+  try {
+    return JSON.parse(atob(str));
+  } catch (e) {
+    console.warn("Failed to decode state", e);
+    return null;
+  }
+};

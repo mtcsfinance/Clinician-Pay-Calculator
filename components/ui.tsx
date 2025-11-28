@@ -49,17 +49,14 @@ export function Tooltip({ content, children }: { content: string; children?: Rea
   );
 }
 
-// Fix: make children optional
-export function Card({ className, children }: { className?: string; children?: React.ReactNode }) {
-  return <div className={cn("rounded-2xl border border-gray-200 bg-white shadow-sm", className)}>{children}</div>;
+export function Card({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("rounded-2xl border border-gray-200 bg-white shadow-sm", className)} {...props}>{children}</div>;
 }
 
-// Fix: make children optional, responsive padding
-export function CardContent({ className, children }: { className?: string; children?: React.ReactNode }) {
-  return <div className={cn("p-4 sm:p-6", className)}>{children}</div>;
+export function CardContent({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("p-4 sm:p-6", className)} {...props}>{children}</div>;
 }
 
-// Fix: make children optional
 export function Button({ className, children, onClick, variant = "primary", size = "default", type = "button", disabled }: {
   className?: string;
   children?: React.ReactNode;
@@ -108,9 +105,8 @@ export function Input({ className, value, defaultValue, onChange, readOnly, disa
   );
 }
 
-// Fix: make children optional
-export function Label({ className, children }: { className?: string; children?: React.ReactNode }) {
-  return <label className={cn("text-sm font-semibold text-gray-900", className)}>{children}</label>;
+export function Label({ className, children, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
+  return <label className={cn("text-sm font-semibold text-gray-900", className)} {...props}>{children}</label>;
 }
 
 export function Switch({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: (v: boolean) => void }) {
