@@ -32,7 +32,7 @@ export function TabsList({ className, children }: { className?: string; children
   return <div className={cn("rounded-xl border border-gray-200 p-1 grid bg-white", className)}>{children}</div>;
 }
 
-export function TabsTrigger({ value, children, id, locked }: { value: string; children?: React.ReactNode; id?: string; locked?: boolean }) {
+export function TabsTrigger({ value, children, id }: { value: string; children?: React.ReactNode; id?: string }) {
   const ctx = useContext(TabsCtx);
   const isActive = ctx?.active === value;
   return (
@@ -41,14 +41,10 @@ export function TabsTrigger({ value, children, id, locked }: { value: string; ch
       onClick={() => ctx?.setActive(value)}
       className={cn(
         "h-10 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1.5",
-        isActive ? "bg-blue-600 text-white" : "text-gray-700 hover:bg-gray-100",
-        locked && "opacity-75 cursor-not-allowed"
+        isActive ? "bg-blue-600 text-white" : "text-gray-700 hover:bg-gray-100"
       )}
     >
       {children}
-      {locked && (
-        <span className="opacity-60" role="img" aria-label="locked">🔒</span>
-      )}
     </button>
   );
 }

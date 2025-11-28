@@ -149,29 +149,7 @@ export default function ClinicianCompCalculator() {
   const [showLeadModal, setShowLeadModal] = useState(false);
   const [activeTab, setActiveTab] = useState("inputs");
   
-  // Gating State
-  const [hasAccess, setHasAccess] = useState(false);
-  const [showGateModal, setShowGateModal] = useState(false);
-
-  // 1. Check for Access Logic (URL Param or LocalStorage)
   useEffect(() => {
-    // Check URL first (return from JotForm)
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("access") === "granted") {
-      setHasAccess(true);
-      try {
-        window.localStorage.setItem("mtcs_gate_access", "true");
-        // Clean URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } catch(e) {}
-    } else {
-      // Check storage
-      const stored = window.localStorage.getItem("mtcs_gate_access");
-      if (stored === "true") {
-        setHasAccess(true);
-      }
-    }
-
     // Check for Tour
     try {
       const seen = localStorage.getItem("mtcs_comp_calc_tour_seen_v5");
@@ -200,25 +178,11 @@ export default function ClinicianCompCalculator() {
     }
   }, []); // Only on mount
 
-  const handleTabChangeAttempt = (tab: string) => {
-    if (tab === "ranges" || tab === "summary") {
-       if (!hasAccess) {
-         setShowGateModal(true);
-         return;
-       }
-    }
+  const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   
-  const handleManualUnlock = () => {
-    setHasAccess(true);
-    setShowGateModal(false);
-    try {
-      window.localStorage.setItem("mtcs_gate_access", "true");
-    } catch(e) {}
-  };
-
   const handleStartTour = () => {
     setTourStep(1);
     setActiveTab("inputs");
@@ -522,19 +486,12 @@ export default function ClinicianCompCalculator() {
         />
       )}
 
-      {/* Access Gate Modal */}
-      <AccessGateModal 
-        isOpen={showGateModal} 
-        onClose={() => setShowGateModal(false)} 
-        onUnlock={handleManualUnlock}
-      />
-
       {/* Lead Capture Modal */}
       <ReportCaptureModal isOpen={showLeadModal} onClose={() => setShowLeadModal(false)} onConvert={handleLeadConvert} />
 
       <Tabs 
         value={activeTab} 
-        onValueChange={handleTabChangeAttempt}
+        onValueChange={handleTabChange}
         defaultValue="inputs" 
         className="w-full max-w-6xl mx-auto"
       >
@@ -592,8 +549,8 @@ export default function ClinicianCompCalculator() {
             
             <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger id="tab-trigger-inputs" value="inputs">Inputs</TabsTrigger>
-              <TabsTrigger id="tab-trigger-ranges" value="ranges" locked={!hasAccess}>Ranges</TabsTrigger>
-              <TabsTrigger id="tab-trigger-summary" value="summary" locked={!hasAccess}>Summary</TabsTrigger>
+              <TabsTrigger id="tab-trigger-ranges" value="ranges">Ranges</TabsTrigger>
+              <TabsTrigger id="tab-trigger-summary" value="summary">Summary</TabsTrigger>
             </TabsList>
           </div>
         </div>
@@ -749,7 +706,7 @@ export default function ClinicianCompCalculator() {
             
             {/* Mobile Nav Button */}
             <div className="flex justify-end pt-4">
-               <Button onClick={() => handleTabChangeAttempt('ranges')} className="w-full sm:w-auto h-12 text-base shadow-lg shadow-blue-100/50">
+               <Button onClick={() => handleTabChange('ranges')} className="w-full sm:w-auto h-12 text-base shadow-lg shadow-blue-100/50">
                  Continue to Ranges →
                </Button>
             </div>
@@ -828,7 +785,7 @@ export default function ClinicianCompCalculator() {
                           <span className="font-bold">Next Steps:</span> Use sliders to adjust your offer. The background color will indicate if it's healthy. Then check the Summary tab to see the final breakdown.
                        </div>
                     </div>
-                    <Button onClick={() => handleTabChangeAttempt('summary')} variant="secondary" className="whitespace-nowrap w-full sm:w-auto">
+                    <Button onClick={() => handleTabChange('summary')} variant="secondary" className="whitespace-nowrap w-full sm:w-auto">
                        Compare & Finalize →
                     </Button>
                  </div>
